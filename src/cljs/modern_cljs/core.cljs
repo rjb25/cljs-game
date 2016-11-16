@@ -2,6 +2,9 @@
 ;; start using git
 ;; create collision area functions
 ;; continue formatting the boundary functions
+;; FUN IDEAS
+;; On collision make a new one with the average of the rgb values
+;; have all update functions also be randomly inherited
 (ns modern-cljs.core)
 (enable-console-print!)
 ;DECLARATIONS
@@ -14,6 +17,18 @@
 (def tick-count (atom 0))
 (def tick-total (atom 0))
 (defn reset-count [] (.log js/console @fps @tick-count @tick-total) (reset! fps 0)(reset! tick-count 0))
+;DEV
+
+(defn change-atom-where [atomic where value changes]
+(->> @atomic
+(map #(if (= (where %) value) (merge % changes) %) )
+(into [] )
+(reset! atomic )))
+
+(defn edit-id [id changes]
+(change-atom-where state :id id changes)
+)
+
 (defn new-object [object collection]
 (conj collection object)
 )
@@ -85,7 +100,7 @@ next-y (move y vy)]
 Otherwise you will overwrite previous updates."
 [] 
 (->> @state 
-(update-collection boundary @state)
+(update-collection boundary @state) ;;handles x and y
 (update-collection bounce-in-boundary @state) ;;handles vx vy
 ;;(new-object 
 ;;	  {:x 300
@@ -122,31 +137,39 @@ Otherwise you will overwrite previous updates."
 (def c-height (.-height (.getElementById js/document "canvas")))
 (def c-width (.-width (.getElementById js/document "canvas")))
 
+;STATE VARS
 (def state (atom [
-	  {:x 4
+	  {:id 1
+	   :x 4
 	   :x-max 300
      	   :y 15
 	   :y-max 300
 	   :vx -60
 	   :vy -20
    	   :draw #'draw-rectangle}
-	  {:x 4
+	  {:id 2
+	   :x 4
 	   :y 150
 	   :vx 20
 	   :vy 20
 	   :draw #'draw-rectangle}
-	  {:x 4
+	  {:id 3
+	   :x 4
 	   :y 150
 	   :vx 10
 	   :vy 17
 	   :draw #'draw-rectangle}
-	  {:x 4
+	  {:id 4
+	   :x 4
 	   :y 150
 	   :vx 7
 	   :vy 25
 	   :draw #'draw-rectangle}
 ]
 ))
+(def open-id (atom (+ 1 (count @state))))
+
+;;INTERVALS
 (def update-interval (js/setInterval #(update-game) (/ 1000 25)))
 (def graphics-interval (js/setInterval #(graphics context) 0))
 (def per-second-interval (js/setInterval reset-count 1000))
