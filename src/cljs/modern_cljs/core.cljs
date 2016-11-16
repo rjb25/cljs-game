@@ -2,6 +2,7 @@
 ;; start using git
 ;; create collision area functions
 ;; continue formatting the boundary functions
+;; make a case for boudary where they move back in if they happen to be out of bound. Or just make the function work that way. basically if x is outside set vx to be going to the center, if y is outside set vy to be going to the center
 ;; FUN IDEAS
 ;; On collision make a new one with the average of the rgb values
 ;; have all update functions also be randomly inherited
@@ -12,21 +13,22 @@
 (declare state)
 (declare c-width)
 (declare c-height)
+
 ;FRAMES
 (def fps (atom 0))
 (def tick-count (atom 0))
 (def tick-total (atom 0))
 (defn reset-count [] (.log js/console @fps @tick-count @tick-total) (reset! fps 0)(reset! tick-count 0))
-;DEV
 
-(defn change-atom-where [atomic where value changes]
+;DEV
+(defn change-atom-where [atomic conditional changes]
 (->> @atomic
-(map #(if (= (where %) value) (merge % changes) %) )
+(map #(if (conditional %) (merge % changes) %) )
 (into [] )
 (reset! atomic )))
 
 (defn edit-id [id changes]
-(change-atom-where state :id id changes)
+(change-atom-where state #(= (:id %) id) changes)
 )
 
 (defn new-object [object collection]
@@ -170,8 +172,12 @@ Otherwise you will overwrite previous updates."
 (def open-id (atom (+ 1 (count @state))))
 
 ;;INTERVALS
-(def update-interval (js/setInterval #(update-game) (/ 1000 25)))
-(def graphics-interval (js/setInterval #(graphics context) 0))
+(defn graphics-interval []
+(graphics context)
+(js/requestAnimationFrame graphics-interval))
+(js/requestAnimationFrame graphics-interval)
+(def update-interval (js/setInterval #(update-game) (/ 1000 50)))
+;(def graphics-interval (js/setInterval #(graphics context) (/ 1000 50)))
 (def per-second-interval (js/setInterval reset-count 1000))
 ))
 
