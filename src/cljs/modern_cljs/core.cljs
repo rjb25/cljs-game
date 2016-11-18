@@ -3,9 +3,16 @@
 ;; create collision area functions
 ;; continue formatting the boundary functions
 ;; make a case for boudary where they move back in if they happen to be out of bound. Or just make the function work that way. basically if x is outside set vx to be going to the center, if y is outside set vy to be going to the center
+;; FUNCTION TYPES
+;; :move :boundary :draw :collision
+;; this could be a problem with multiple of these affecting the same aspect (Ex. Move and boundary both affecting x and y
+;; so maybe do :x-func or :bound-func or :pos-func
+;; this and function arity?
+;; so certain functions are always called last like the boundary functions
 ;; FUN IDEAS
 ;; On collision make a new one with the average of the rgb values
 ;; have all update functions also be randomly inherited
+;; have each object have a section for functions that is mapped like {:variables {:x 10 :y 10 :vx 10 :vy 10} :funcs {:x move :y move :vx accelerate :vy accelerate :draw draw-rectangl}}
 (ns modern-cljs.core)
 (enable-console-print!)
 ;DECLARATIONS
@@ -29,6 +36,9 @@
 
 (defn edit-id [id changes]
 (change-atom-where state #(= (:id %) id) changes)
+)
+(defn dev-new-object [atomic object]
+(reset! atomic (conj @atomic object))
 )
 
 (defn new-object [object collection]
@@ -92,6 +102,23 @@ next-y (move y vy)]
 {:vx (+ vx .01) :vy (+ vy .01)}
 )
 ;CORE
+(defn act [object state-copy] 
+(let [funcs (:funcs object)
+      vars (:vars object)
+      names (keys funcs)]
+(reduce #(conj %1 {%2 ((%2 funcs) vars state-copy)}) {} names)
+))
+(defn move-x [{:keys [x vx]} state-copy] 
+(move x vx)
+)
+(defn move-y [{:keys [y vy]} state-copy] 
+(move y vy)
+)
+(defn test-act []
+(act {:vars {:x 1 :y 2 :vx 10 :vy 10} :funcs {:x #'move-x :y #'move-y}} 0))
+
+
+
 (defn update-collection
 "updates all members of collection by merging changes. Returns a new collection"
 [function old build]
@@ -127,7 +154,7 @@ Otherwise you will overwrite previous updates."
 [x y ctx]
 (.beginPath ctx)
 (set! (.-fillStyle ctx) "red")
-(.fillRect ctx x y 15 12)
+(.fillRect ctx x y 150 120)
 (.closePath ctx)
 )
 ;One time events
