@@ -3,6 +3,7 @@
 ;; create collision area functions
 ;; continue formatting the boundary functions
 ;; make a case for boudary where they move back in if they happen to be out of bound. Or just make the function work that way. basically if x is outside set vx to be going to the center, if y is outside set vy to be going to the center
+;; Make calls to function be by type with default functions
 ;; FUNCTION TYPES
 ;; :move :boundary :draw :collision
 ;; this could be a problem with multiple of these affecting the same aspect (Ex. Move and boundary both affecting x and y
@@ -102,41 +103,28 @@ next-y (move y vy)]
 {:vx (+ vx .01) :vy (+ vy .01)}
 )
 ;CORE
-(defn act [object state-copy] 
-(let [funcs (:funcs object)
-      vars (:vars object)
-      names (keys funcs)]
-(reduce #(conj %1 {%2 ((%2 funcs) vars state-copy)}) {} names)
-))
-(defn move-x [{:keys [x vx]} state-copy] 
-(move x vx)
-)
-(defn move-y [{:keys [y vy]} state-copy] 
-(move y vy)
-)
-(defn test-act []
-(act {:vars {:x 1 :y 2 :vx 10 :vy 10} :funcs {:x #'move-x :y #'move-y}} 0))
+(defn apply-func-keys
+"apply each function to this object, 
+mergeing the result of each function with the previous,
+to create the new object"
+ [func-keys object] 
+(reduce #(merge %1 ((%2 object) object)) object func-keys))
 
+;change this to be a doseq, there is no good reason for having a lazy seq here that I can think of. UPDATE might as well just leave lazy. HOWEVER be careful of side effect functions
 
-
-(defn update-collection
-"updates all members of collection by merging changes. Returns a new collection"
-[function old build]
-(into [] (map #(merge %2 (function %1)) old build)))
+(defn call-funcs
+"calls the functions matching the given keys
+ on all objects, returns new object collection.
+funcs later in the key sequence will overwrite the earlier ones"
+[func-keys collection]
+(into [] (map #(apply-func-keys func-keys %) collection)))
 
 (defn update-game 
-"No two functions can update the same thing in a given collection
-Otherwise you will overwrite previous updates."
+"Be careful of the order in which functions are called,
+ later functions will overwrite earlier functions that change the same variable"
 [] 
 (->> @state 
-(update-collection boundary @state) ;;handles x and y
-(update-collection bounce-in-boundary @state) ;;handles vx vy
-;;(new-object 
-;;	  {:x 300
-;;	   :y 150
-;;	   :vx 7
-;;	   :vy 15
-;;	   :draw draw-rectangle})
+(call-funcs [:move :boundary])
 (reset! state))
 (reset! tick-count (inc @tick-count))
 (reset! tick-total (inc @tick-total))
@@ -175,24 +163,34 @@ Otherwise you will overwrite previous updates."
 	   :y-max 300
 	   :vx -60
 	   :vy -20
+	   :move #'boundary
+	   :boundary #'bounce-in-boundary
    	   :draw #'draw-rectangle}
 	  {:id 2
 	   :x 4
 	   :y 150
 	   :vx 20
 	   :vy 20
-	   :draw #'draw-rectangle}
+	   :move #'boundary
+	   :boundary #'bounce-in-boundary
+	   :draw #'draw-rectangle
+}
 	  {:id 3
 	   :x 4
 	   :y 150
 	   :vx 10
 	   :vy 17
-	   :draw #'draw-rectangle}
+	   :move #'boundary
+	   :boundary #'bounce-in-boundary
+	   :draw #'draw-rectangle
+		}
 	  {:id 4
 	   :x 4
 	   :y 150
 	   :vx 7
 	   :vy 25
+	   :move #'boundary
+	   :boundary #'bounce-in-boundary
 	   :draw #'draw-rectangle}
 ]
 ))
