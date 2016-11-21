@@ -47,7 +47,7 @@
 )
 
 ;;MOVEMENT
-(defn move [pos speed]
+(defn move-single [pos speed]
 (+ pos (/ speed 10)))
 (defn add-diff [num1 num2]
 (+ num1 (- num1 num2)))
@@ -64,35 +64,35 @@ next-pos)))
 (or (> pos maximum) (< pos minimum)))
 
 
-;(defn wrap-single 
-;"will wrap around if out of boundary globe style" 
-;[next-pos minimum maximum]
-;(if (> next-pos maximum) minimum
-;(if (< next-pos minimum) maximum
-;next-pos)))
-;(defn delete-single 
-;"will wrap around if out of boundary globe style" 
-;[next-pos minimum maximum]
-;(if (> next-pos maximum) minimum
-;(if (< next-pos minimum) maximum
-;next-pos)))
 
 (defn boundary
 "putting x and y together"
 [{:keys [x y vx vy]}]
- {:x (boundary-single (move x vx) 0 c-width) :y (boundary-single (move y vy) 0 c-height)})
+ {:x (boundary-single (move-single x vx) 0 c-width) :y (boundary-single (move-single y vy) 0 c-height)})
 
-;(defn wrap
-;"putting x and y together"
-;[{:keys [x y vx vy]}]
-;{:x (wrap-single x vx 0 c-width) :y (wrap-single y vy 0 c-height)})
+(defn move
+[{:keys [x y vx vy]}]
+ {:x (move-single x vx) :y (move-single y vy)})
+
+(defn wrap-single 
+"will wrap around if out of boundary globe style" 
+[keyname next-pos minimum maximum]
+(if (> next-pos maximum) {keyname minimum}
+(if (< next-pos minimum) {keyname maximum} )))
+
+(defn wrap
+"putting x and y together"
+[{:keys [x y vx vy x-max x-min y-max y-min]}]
+(let [next-x (move-single x vx)
+next-y (move-single y vy)]
+(merge (wrap-single :x next-x x-min x-max)  (wrap-single :y next-y y-min y-max))))
 
 (defn bounce-in-boundary 
 "changes vx or vy if outside boundary"
 [{:keys [x y vx vy x-min x-max y-min y-max] :or {x-min 0 x-max c-width y-min 0 y-max c-height}}]
-(let [next-x (move x vx)
-next-y (move y vy)]
-(merge 
+(let [next-x (move-single x vx)
+next-y (move-single y vy)]
+(merge
 (if (outside next-x x-min x-max)
 {:vx (* vx -1)})
 (if (outside next-y y-min y-max)
@@ -104,13 +104,13 @@ next-y (move y vy)]
 )
 ;CORE
 (defn apply-func-keys
-"apply each function to this object, 
+"apply each function to this object if the function has that function
 mergeing the result of each function with the previous,
 to create the new object"
  [func-keys object] 
-(reduce #(merge %1 ((%2 object) object)) object func-keys))
+(reduce #(if (%2 object) (merge %1 ((%2 object) object)) %1) object func-keys))
 
-;change this to be a doseq, there is no good reason for having a lazy seq here that I can think of. UPDATE might as well just leave lazy. HOWEVER be careful of side effect functions
+;change this to be a doseq, there is no good reason for having a lazy seq here that I can think of. UPDATE might as well just leave lazy, because everything is used on draw. HOWEVER be careful of side effect functions
 
 (defn call-funcs
 "calls the functions matching the given keys
@@ -120,8 +120,6 @@ funcs later in the key sequence will overwrite the earlier ones"
 (into [] (map #(apply-func-keys func-keys %) collection)))
 
 (defn update-game 
-"Be careful of the order in which functions are called,
- later functions will overwrite earlier functions that change the same variable"
 [] 
 (->> @state 
 (call-funcs [:move :boundary])
@@ -161,17 +159,17 @@ funcs later in the key sequence will overwrite the earlier ones"
 	   :x-max 300
      	   :y 15
 	   :y-max 300
-	   :vx -60
-	   :vy -20
-	   :move #'boundary
-	   :boundary #'bounce-in-boundary
+	   :vx 5
+	   :vy 3
+	   :move #'move
+	   :boundary #'wrap
    	   :draw #'draw-rectangle}
 	  {:id 2
 	   :x 4
 	   :y 150
 	   :vx 20
 	   :vy 20
-	   :move #'boundary
+	   :move #'move
 	   :boundary #'bounce-in-boundary
 	   :draw #'draw-rectangle
 }
