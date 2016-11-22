@@ -1,24 +1,19 @@
 ;; TODO
-;; start using git
 ;; create collision area functions
 ;; continue formatting the boundary functions
 ;; make a case for boudary where they move back in if they happen to be out of bound. Or just make the function work that way. basically if x is outside set vx to be going to the center, if y is outside set vy to be going to the center
-;; Make calls to function be by type with default functions
 ;; FUNCTION TYPES
 ;; :move :boundary :draw :collision
-;; this could be a problem with multiple of these affecting the same aspect (Ex. Move and boundary both affecting x and y
-;; so maybe do :x-func or :bound-func or :pos-func
-;; this and function arity?
-;; so certain functions are always called last like the boundary functions
+;; this could be a problem with multiple of these affecting the same aspect (Ex. Move and boundary both affecting x and y, NOT because i decide the order and proof it. Could still become a long term problem
 ;; FUN IDEAS
 ;; On collision make a new one with the average of the rgb values
-;; have all update functions also be randomly inherited
-;; have each object have a section for functions that is mapped like {:variables {:x 10 :y 10 :vx 10 :vy 10} :funcs {:x move :y move :vx accelerate :vy accelerate :draw draw-rectangl}}
+;; have all type functions (ex. :move :boundary :on-enemy) also be randomly inherited on mating
+
 (ns modern-cljs.core)
 (enable-console-print!)
 ;DECLARATIONS
-(declare ctx)
-(declare state)
+(declare context)
+(declare game-state)
 (declare c-width)
 (declare c-height)
 
@@ -36,56 +31,54 @@
 (reset! atomic )))
 
 (defn edit-id [id changes]
-(change-atom-where state #(= (:id %) id) changes)
-)
+(change-atom-where game-state #(= (:id %) id) changes))
+
 (defn dev-new-object [atomic object]
-(reset! atomic (conj @atomic object))
-)
+(reset! atomic (conj @atomic object)))
 
 (defn new-object [object collection]
-(conj collection object)
-)
+(conj collection object))
 
 ;;MOVEMENT
 (defn move-single [pos speed]
 (+ pos (/ speed 10)))
+
+(defn move
+[{:keys [x y vx vy]}]
+ {:x (move-single x vx) :y (move-single y vy)})
+
 (defn add-diff [num1 num2]
 (+ num1 (- num1 num2)))
 ;;make a function that is "going out of boundary"
-;next four functions are eerily similar
+;next four functions are eerily similar. HOWEVER some have different cases of what to do on each bound
 (defn boundary-single 
 "moves x or y by speed and bounces back if out of bounds, staying in box" 
 [next-pos minimum maximum]
 (if (> next-pos maximum) (add-diff maximum next-pos)
 (if (< next-pos minimum) (add-diff minimum next-pos)
 next-pos)))
-(defn outside
-[pos minimum maximum]
-(or (> pos maximum) (< pos minimum)))
-
-
 
 (defn boundary
 "putting x and y together"
 [{:keys [x y vx vy]}]
  {:x (boundary-single (move-single x vx) 0 c-width) :y (boundary-single (move-single y vy) 0 c-height)})
 
-(defn move
-[{:keys [x y vx vy]}]
- {:x (move-single x vx) :y (move-single y vy)})
-
 (defn wrap-single 
 "will wrap around if out of boundary globe style" 
 [keyname next-pos minimum maximum]
 (if (> next-pos maximum) {keyname minimum}
-(if (< next-pos minimum) {keyname maximum} )))
+(if (< next-pos minimum) {keyname maximum})))
 
 (defn wrap
 "putting x and y together"
-[{:keys [x y vx vy x-max x-min y-max y-min]}]
+[{:keys [x y vx vy x-min x-max y-min y-max] :or {x-min 0 x-max c-width y-min 0 y-max c-height}}]
 (let [next-x (move-single x vx)
 next-y (move-single y vy)]
 (merge (wrap-single :x next-x x-min x-max)  (wrap-single :y next-y y-min y-max))))
+
+(defn outside
+[pos minimum maximum]
+(or (> pos maximum) (< pos minimum)))
 
 (defn bounce-in-boundary 
 "changes vx or vy if outside boundary"
@@ -96,12 +89,10 @@ next-y (move-single y vy)]
 (if (outside next-x x-min x-max)
 {:vx (* vx -1)})
 (if (outside next-y y-min y-max)
-{:vy (* vy -1)})
-)))
+{:vy (* vy -1)}))))
 
 (defn accelerate [{:keys [vx vy]}]
-{:vx (+ vx .01) :vy (+ vy .01)}
-)
+{:vx (+ vx .01) :vy (+ vy .01)})
 ;CORE
 (defn apply-func-keys
 "apply each function to this object if the function has that function
@@ -113,36 +104,36 @@ to create the new object"
 ;change this to be a doseq, there is no good reason for having a lazy seq here that I can think of. UPDATE might as well just leave lazy, because everything is used on draw. HOWEVER be careful of side effect functions
 
 (defn call-funcs
-"calls the functions matching the given keys
- on all objects, returns new object collection.
+"Calls the functions matching the given keys
+passing them the current object data.
+ This is done on all objects. 
+Returns new object collection.
 funcs later in the key sequence will overwrite the earlier ones"
 [func-keys collection]
 (into [] (map #(apply-func-keys func-keys %) collection)))
 
 (defn update-game 
+"the game state tick function"
 [] 
-(->> @state 
-(call-funcs [:move :boundary])
-(reset! state))
+(->> @game-state 
+(call-funcs [:move :boundary :acceleration])
+(reset! game-state))
 (reset! tick-count (inc @tick-count))
-(reset! tick-total (inc @tick-total))
-)
+(reset! tick-total (inc @tick-total)))
 
 ;GRAPHICS
-(defn graphics [ctx] 
+(defn graphics [state ctx] 
  (.clearRect ctx 0 0  c-width c-height)
- (doseq [draw @state] 
-   ((:draw draw) (:x draw) (:y draw) ctx))
-(reset! fps (inc @fps))
-)
+ (doseq [object @state] 
+   ((:draw object) object ctx))
+ (reset! fps (inc @fps)))
 
 (defn draw-rectangle
-[x y ctx]
-(.beginPath ctx)
-(set! (.-fillStyle ctx) "red")
-(.fillRect ctx x y 150 120)
-(.closePath ctx)
-)
+ [{:keys [x y size] :or {size 15}} ctx]
+ (.beginPath ctx)
+ (set! (.-fillStyle ctx) "red")
+ (.fillRect ctx x y size size)
+ (.closePath ctx))
 ;One time events
 (.addEventListener
   js/window
@@ -153,36 +144,17 @@ funcs later in the key sequence will overwrite the earlier ones"
 (def c-width (.-width (.getElementById js/document "canvas")))
 
 ;STATE VARS
-(def state (atom [
+(def game-state (atom [
 	  {:id 1
 	   :x 4
-	   :x-max 300
      	   :y 15
-	   :y-max 300
-	   :vx 5
-	   :vy 3
+	   :size 150
+	   :vx 15
+	   :vy 15
 	   :move #'move
 	   :boundary #'wrap
    	   :draw #'draw-rectangle}
 	  {:id 2
-	   :x 4
-	   :y 150
-	   :vx 20
-	   :vy 20
-	   :move #'move
-	   :boundary #'bounce-in-boundary
-	   :draw #'draw-rectangle
-}
-	  {:id 3
-	   :x 4
-	   :y 150
-	   :vx 10
-	   :vy 17
-	   :move #'boundary
-	   :boundary #'bounce-in-boundary
-	   :draw #'draw-rectangle
-		}
-	  {:id 4
 	   :x 4
 	   :y 150
 	   :vx 7
@@ -190,20 +162,18 @@ funcs later in the key sequence will overwrite the earlier ones"
 	   :move #'boundary
 	   :boundary #'bounce-in-boundary
 	   :draw #'draw-rectangle}
-]
-))
-(def open-id (atom (+ 1 (count @state))))
+]))
+(def open-id (atom (+ 1 (count @game-state))))
 
 ;;INTERVALS
 (defn graphics-interval []
-(graphics context)
+(graphics game-state context)
 (js/requestAnimationFrame graphics-interval))
 (js/requestAnimationFrame graphics-interval)
 (def update-interval (js/setInterval #(update-game) (/ 1000 50)))
 ;(def graphics-interval (js/setInterval #(graphics context) (/ 1000 50)))
 (def per-second-interval (js/setInterval reset-count 1000))
 ))
-
 
 ;(require '[modern-cljs.core :as c] :reload)
 ;QUESTIONS
