@@ -2,15 +2,19 @@
 ;; create collision area functions
 ;; continue formatting the boundary functions
 ;; make a case for boudary where they move back in if they happen to be out of bound. Or just make the function work that way. basically if x is outside set vx to be going to the center, if y is outside set vy to be going to the center
+;; Create a merge method that will not overwrite previous changes.
+;;
 ;; FUNCTION TYPES
 ;; :move :boundary :draw :collision
 ;; this could be a problem with multiple of these affecting the same aspect (Ex. Move and boundary both affecting x and y, NOT because i decide the order and proof it. Could still become a long term problem
+;;
 ;; FUN IDEAS
 ;; On collision make a new one with the average of the rgb values
 ;; have all type functions (ex. :move :boundary :on-enemy) also be randomly inherited on mating
 
 (ns modern-cljs.core)
 (enable-console-print!)
+
 ;DECLARATIONS
 (declare context)
 (declare game-state)
@@ -93,9 +97,17 @@ next-y (move-single y vy)]
 
 (defn accelerate [{:keys [vx vy]}]
 {:vx (+ vx .01) :vy (+ vy .01)})
+;COLLISION
+
 ;CORE
+(defn case-merge [a b]
+  (merge-with (fn [x y]
+                (cond (map? y) (case-merge x y) 
+                      (vector? y) (concat x y) 
+                      :else y)) 
+                 a b))
 (defn apply-func-keys
-"apply each function to this object if the function has that function
+"apply each function to this object if the object has that function
 mergeing the result of each function with the previous,
 to create the new object"
  [func-keys object] 
@@ -104,19 +116,31 @@ to create the new object"
 ;change this to be a doseq, there is no good reason for having a lazy seq here that I can think of. UPDATE might as well just leave lazy, because everything is used on draw. HOWEVER be careful of side effect functions
 
 (defn call-funcs
-"Calls the functions matching the given keys
-passing them the current object data.
- This is done on all objects. 
-Returns new object collection.
-funcs later in the key sequence will overwrite the earlier ones"
-[func-keys collection]
-(into [] (map #(apply-func-keys func-keys %) collection)))
+"Calls all functions from all objects 
+passing them the object that the function resides in as a default.
+ however they can look at the entire state should they so choose.
+Returns new change collection to be applied later."
+[state]
+((map #(func-results (get-funcs %) %) collection)))
 
+(defn func-results
+[funcs object]
+(map #(% object) funcs))
+
+(defn get-funcs
+[object]
+(-> object
+(second)
+(:funcs)
+(map #(second))
+(vector))
+   
 (defn update-game 
 "the game state tick function"
 [] 
 (->> @game-state 
-(call-funcs [:move :boundary :acceleration])
+(call-funcs)
+;(call-collision-funcs [:bounce])
 (reset! game-state))
 (reset! tick-count (inc @tick-count))
 (reset! tick-total (inc @tick-total)))
@@ -144,25 +168,34 @@ funcs later in the key sequence will overwrite the earlier ones"
 (def c-width (.-width (.getElementById js/document "canvas")))
 
 ;STATE VARS
-(def game-state (atom [
-	  {:id 1
-	   :x 4
+(def game-state (atom {
+;collisions is 0
+		0 {}
+
+	   1
+	   {:x 4
      	   :y 15
 	   :size 150
 	   :vx 15
 	   :vy 15
+	   :funcs {
 	   :move #'move
 	   :boundary #'wrap
-   	   :draw #'draw-rectangle}
-	  {:id 2
-	   :x 4
+   	   :draw #'draw-rectangle
+	}
+	}
+	   2
+	   {:x 4
 	   :y 150
 	   :vx 7
 	   :vy 25
+	:funcs {
 	   :move #'boundary
 	   :boundary #'bounce-in-boundary
-	   :draw #'draw-rectangle}
-]))
+	   :draw #'draw-rectangle
+	}
+}
+}))
 (def open-id (atom (+ 1 (count @game-state))))
 
 ;;INTERVALS
