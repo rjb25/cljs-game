@@ -28,6 +28,8 @@
 (defn reset-count [] (.log js/console @fps @tick-count @tick-total) (reset! fps 0)(reset! tick-count 0))
 
 ;DEV
+(defn return-one [object] #(+ 1 1))
+
 (defn change-atom-where [atomic conditional changes]
 (->> @atomic
 (map #(if (conditional %) (merge % changes) %) )
@@ -115,26 +117,26 @@ to create the new object"
 
 ;change this to be a doseq, there is no good reason for having a lazy seq here that I can think of. UPDATE might as well just leave lazy, because everything is used on draw. HOWEVER be careful of side effect functions
 
+(defn get-funcs
+[object]
+(->> object
+(second)
+(:funcs)
+(map #(second %))
+(into [] )))
+
+(defn get-func-results
+[funcs object]
+(map #(% object) funcs))
+
 (defn call-funcs
 "Calls all functions from all objects 
 passing them the object that the function resides in as a default.
  however they can look at the entire state should they so choose.
 Returns new change collection to be applied later."
 [state]
-((map #(func-results (get-funcs %) %) collection)))
+(map #(get-func-results (get-funcs %) %) state))
 
-(defn func-results
-[funcs object]
-(map #(% object) funcs))
-
-(defn get-funcs
-[object]
-(-> object
-(second)
-(:funcs)
-(map #(second))
-(vector))
-   
 (defn update-game 
 "the game state tick function"
 [] 
@@ -181,8 +183,8 @@ Returns new change collection to be applied later."
 	   :funcs {
 	   :move #'move
 	   :boundary #'wrap
-   	   :draw #'draw-rectangle
 	}
+   	   :draw #'draw-rectangle
 	}
 	   2
 	   {:x 4
@@ -190,22 +192,22 @@ Returns new change collection to be applied later."
 	   :vx 7
 	   :vy 25
 	:funcs {
-	   :move #'boundary
+	   :move #'move
 	   :boundary #'bounce-in-boundary
-	   :draw #'draw-rectangle
 	}
+	   :draw #'draw-rectangle
 }
 }))
 (def open-id (atom (+ 1 (count @game-state))))
 
 ;;INTERVALS
-(defn graphics-interval []
-(graphics game-state context)
-(js/requestAnimationFrame graphics-interval))
-(js/requestAnimationFrame graphics-interval)
-(def update-interval (js/setInterval #(update-game) (/ 1000 50)))
+;(defn graphics-interval []
+;(graphics game-state context)
+;(js/requestAnimationFrame graphics-interval))
+;(js/requestAnimationFrame graphics-interval)
+;(def update-interval (js/setInterval #(update-game) (/ 1000 50)))
 ;(def graphics-interval (js/setInterval #(graphics context) (/ 1000 50)))
-(def per-second-interval (js/setInterval reset-count 1000))
+;(def per-second-interval (js/setInterval reset-count 1000))
 ))
 
 ;(require '[modern-cljs.core :as c] :reload)
