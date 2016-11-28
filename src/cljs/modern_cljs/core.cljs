@@ -2,7 +2,7 @@
 ;; create collision area functions
 ;; continue formatting the boundary functions
 ;; make a case for boudary where they move back in if they happen to be out of bound. Or just make the function work that way. basically if x is outside set vx to be going to the center, if y is outside set vy to be going to the center
-;; Create a merge method that will not overwrite previous changes.
+;; Create a merge method that allows for cumulative change and order of application.
 ;;
 ;; FUNCTION TYPES
 ;; :move :boundary :draw :collision
@@ -12,8 +12,10 @@
 ;; On collision make a new one with the average of the rgb values
 ;; have all type functions (ex. :move :boundary :on-enemy) also be randomly inherited on mating
 
-(ns modern-cljs.core)
+(ns modern-cljs.core
+(:require [tailrecursion.priority-map :refer [priority-map priority-map-by]]))
 (enable-console-print!)
+(def prior (priority-map :a 2 :b 3 :c 1))
 
 ;DECLARATIONS
 (declare context)
@@ -50,8 +52,11 @@
 (+ pos (/ speed 10)))
 
 (defn move
-[{:keys [x y vx vy]}]
- {:x (move-single x vx) :y (move-single y vy)})
+[[id {:keys [x y vx vy]}]]
+ [id {:x #(+ (/ vx 10) %) :y #(+ (/ vy 10) %)}])
+;(defn move
+;[{:keys [x y vx vy]}]
+; {:x (move-single x vx) :y (move-single y vy)})
 
 (defn add-diff [num1 num2]
 (+ num1 (- num1 num2)))
@@ -102,12 +107,6 @@ next-y (move-single y vy)]
 ;COLLISION
 
 ;CORE
-(defn case-merge [a b]
-  (merge-with (fn [x y]
-                (cond (map? y) (case-merge x y) 
-                      (vector? y) (concat x y) 
-                      :else y)) 
-                 a b))
 (defn apply-func-keys
 "apply each function to this object if the object has that function
 mergeing the result of each function with the previous,
@@ -119,11 +118,11 @@ to create the new object"
 
 (defn get-funcs
 [object]
-(->> object
-(second)
-(:funcs)
-(map #(second %))
-(into [] )))
+ (->> object
+ (second)
+ (:funcs)
+ (map #(second %))
+ (into [])))
 
 (defn get-func-results
 [funcs object]
@@ -132,7 +131,7 @@ to create the new object"
 (defn call-funcs
 "Calls all functions from all objects 
 passing them the object that the function resides in as a default.
- however they can look at the entire state should they so choose.
+ However they can look at the entire state should they so choose.
 Returns new change collection to be applied later."
 [state]
 (map #(get-func-results (get-funcs %) %) state))
@@ -172,17 +171,18 @@ Returns new change collection to be applied later."
 ;STATE VARS
 (def game-state (atom {
 ;collisions is 0
-		0 {}
+	;	0 {}
 
 	   1
 	   {:x 4
      	   :y 15
-	   :size 150
+	;   :size 150
 	   :vx 15
 	   :vy 15
 	   :funcs {
 	   :move #'move
-	   :boundary #'wrap
+	   :jargo #'move
+	   ;:boundary #'wrap
 	}
    	   :draw #'draw-rectangle
 	}
@@ -193,7 +193,7 @@ Returns new change collection to be applied later."
 	   :vy 25
 	:funcs {
 	   :move #'move
-	   :boundary #'bounce-in-boundary
+	   ;:boundary #'bounce-in-boundary
 	}
 	   :draw #'draw-rectangle
 }
