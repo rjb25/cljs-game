@@ -32,8 +32,10 @@
 
 ;DEV
 (defn return-one [object] #(+ 1 1))
-(defn return-1 [id object] {id {:x [{:fun 1} 1]}})
-(defn return-2 [id object] {id {:x [{:fun 2} 2]}})
+
+;dont forget that wrappers will make this seemingly weird structure invisible
+(defn return-1 [id object] [{id {:x [#(identity 55) 1]}}])
+(defn return-2 [id object] [{id {:x [#(identity 22) 3]}} {id {:x [#(identity 22) 2]}}])
 
 (defn change-atom-where [atomic conditional changes]
 (->> @atomic
@@ -114,55 +116,55 @@ next-y (move-single y vy)]
 ;COLLISION
 
 ;CORE
+;fill out change as a default system for function returns allows me to change all funcs in one place 
+(defn change [id what func value])
 ;http://stackoverflow.com/questions/17327733/merge-two-complex-data-structures
-(defn deep-merge [a b]
+;Apply the sort when you go to use the functions
+(defn change-merge [change-list-1 change-list-2]
   (merge-with (fn [x y]
-                (cond (map? y) (deep-merge x y) 
-                      (vector? y) (concat x y) 
-                      :else y)) 
-                 a b))
-(defn into-1-or-more
-[this-list list-or-single]
-(into this-list (flatten (conj [] list-or-single))))
-
-;(defn apply-func-keys
-;"apply each function to this object if the object has that function
-;mergeing the result of each function with the previous,
-;to create the new object"
-; [func-keys object] 
-;(reduce #(if (%2 object) (merge %1 ((%2 object) object)) %1) object func-keys))
-
-;change this to be a doseq, there is no good reason for having a lazy seq here that I can think of. UPDATE might as well just leave lazy, because everything is used on draw. HOWEVER be careful of side effect functions
-
+                (cond (map? x) (change-merge x y) 
+                      (vector? x) (list x y)
+		      (list? x) (conj x y)
+                      :else x)) 
+                 change-list-1 change-list-2))
 (defn get-funcs
 [object]
  (->> object
  (:funcs)
  (map #(second %))))
 
-;(defn get-func-results
-;[funcs object]
-;(reduce #( #(%2 object) funcs)))
+(defn gen-id-funcs
+[[id object]]
+[id (get-funcs object) object]
+)
 
-(defn get-func-results
-[funcs object]
-(flatten (map #(% object) funcs)))
-(defn lists-to-pq [list-map] "here")
+(defn gen-func-results
+"each function takes the id it is called from 
+ and the object that matches that id"
+[[id funcs object]]
+(reduce #(into %1 (%2 id object)) [] funcs))
 
+(defn get-object-changes [object]
+(->> object
+ (gen-id-funcs)
+ (gen-func-results)
+ ))
 
-(defn gen-changes
-"Calls all functions from all objects 
-passing them the object that the function resides in as a default.
- However they can look at the entire state should they so choose.
-Returns new change collection to be applied later."
-[state]
-(lists-to-pq (reduce deep-merge (reduce #(into %1 (get-func-results (get-funcs (second %2)) (first %2))) [] state))))
+(defn gen-change [state] 
+(->> state
+(map #(get-object-changes %))
+(apply into) ;;combines the returned change lists into single list
+(reduce change-merge);;merges the changes into a single map
+))
+(defn apply-changes-in-order 
+[]
+)
 
 (defn update-game 
 "the game state tick function"
 [] 
 (->> @game-state 
-(gen-changes)
+(gen-change)
 ;(call-collision-funcs [:bounce])
 (reset! game-state))
 (reset! tick-count (inc @tick-count))
