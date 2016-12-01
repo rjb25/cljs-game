@@ -15,6 +15,7 @@
 (ns modern-cljs.core
 (:require [tailrecursion.priority-map :refer [priority-map priority-map-by]]))
 (enable-console-print!)
+
 (def prior (priority-map :a 2 :b 3 :c 1))
 
 ;DECLARATIONS
@@ -31,6 +32,8 @@
 
 ;DEV
 (defn return-one [object] #(+ 1 1))
+(defn return-1 [id object] {id {:x [{:fun 1} 1]}})
+(defn return-2 [id object] {id {:x [{:fun 2} 2]}})
 
 (defn change-atom-where [atomic conditional changes]
 (->> @atomic
@@ -87,6 +90,10 @@ next-pos)))
 next-y (move-single y vy)]
 (merge (wrap-single :x next-x x-min x-max)  (wrap-single :y next-y y-min y-max))))
 
+(defn takes-func 
+[func]
+(func 1 1 1))
+
 (defn outside
 [pos minimum maximum]
 (or (> pos maximum) (< pos minimum)))
@@ -107,40 +114,55 @@ next-y (move-single y vy)]
 ;COLLISION
 
 ;CORE
-(defn apply-func-keys
-"apply each function to this object if the object has that function
-mergeing the result of each function with the previous,
-to create the new object"
- [func-keys object] 
-(reduce #(if (%2 object) (merge %1 ((%2 object) object)) %1) object func-keys))
+;http://stackoverflow.com/questions/17327733/merge-two-complex-data-structures
+(defn deep-merge [a b]
+  (merge-with (fn [x y]
+                (cond (map? y) (deep-merge x y) 
+                      (vector? y) (concat x y) 
+                      :else y)) 
+                 a b))
+(defn into-1-or-more
+[this-list list-or-single]
+(into this-list (flatten (conj [] list-or-single))))
+
+;(defn apply-func-keys
+;"apply each function to this object if the object has that function
+;mergeing the result of each function with the previous,
+;to create the new object"
+; [func-keys object] 
+;(reduce #(if (%2 object) (merge %1 ((%2 object) object)) %1) object func-keys))
 
 ;change this to be a doseq, there is no good reason for having a lazy seq here that I can think of. UPDATE might as well just leave lazy, because everything is used on draw. HOWEVER be careful of side effect functions
 
 (defn get-funcs
 [object]
  (->> object
- (second)
  (:funcs)
- (map #(second %))
- (into [])))
+ (map #(second %))))
+
+;(defn get-func-results
+;[funcs object]
+;(reduce #( #(%2 object) funcs)))
 
 (defn get-func-results
 [funcs object]
-(map #(% object) funcs))
+(flatten (map #(% object) funcs)))
+(defn lists-to-pq [list-map] "here")
 
-(defn call-funcs
+
+(defn gen-changes
 "Calls all functions from all objects 
 passing them the object that the function resides in as a default.
  However they can look at the entire state should they so choose.
 Returns new change collection to be applied later."
 [state]
-(map #(get-func-results (get-funcs %) %) state))
+(lists-to-pq (reduce deep-merge (reduce #(into %1 (get-func-results (get-funcs (second %2)) (first %2))) [] state))))
 
 (defn update-game 
 "the game state tick function"
 [] 
 (->> @game-state 
-(call-funcs)
+(gen-changes)
 ;(call-collision-funcs [:bounce])
 (reset! game-state))
 (reset! tick-count (inc @tick-count))
@@ -180,8 +202,10 @@ Returns new change collection to be applied later."
 	   :vx 15
 	   :vy 15
 	   :funcs {
-	   :move #'move
-	   :jargo #'move
+:test2 #'return-2
+:test #'return-1
+;	   :move #'move
+;	   :jargo #'move
 	   ;:boundary #'wrap
 	}
    	   :draw #'draw-rectangle
@@ -192,7 +216,8 @@ Returns new change collection to be applied later."
 	   :vx 7
 	   :vy 25
 	:funcs {
-	   :move #'move
+:test #'return-1
+;	   :move #'move
 	   ;:boundary #'bounce-in-boundary
 	}
 	   :draw #'draw-rectangle
