@@ -34,8 +34,8 @@
 (defn return-one [object] #(+ 1 1))
 
 ;dont forget that wrappers will make this seemingly weird structure invisible
-(defn return-1 [id object] [{id {:x [#(identity 55) 1]}}])
-(defn return-2 [id object] [{id {:x [#(identity 22) 3]}} {id {:x [#(identity 22) 2]}}])
+(defn return-1 [id object] [{id {:x [#(+ % 55) 1]}}])
+(defn return-2 [id object] [{id {:x [#(+ % 22) 3]}} {id {:x [#(+ % 22) 2]}}])
 
 (defn change-atom-where [atomic conditional changes]
 (->> @atomic
@@ -127,6 +127,14 @@ next-y (move-single y vy)]
 		      (list? x) (conj x y)
                       :else x)) 
                  change-list-1 change-list-2))
+(defn apply-merge [game all-changes]
+  "in this function first represents the function and second the priority"
+  (merge-with (fn [x y]
+                (cond (map? y) (apply-merge x y) 
+                      (vector? y) ((first y) x)
+		      (list? y) (reduce #((first %2) %1) x (sort-by second < y))
+                      :else x)) 
+                 game all-changes))
 (defn get-funcs
 [object]
  (->> object
@@ -134,25 +142,34 @@ next-y (move-single y vy)]
  (map #(second %))))
 
 (defn gen-id-funcs
+"generates a vector containing id, the functions that id had
+and the object to apply those functions to"
 [[id object]]
 [id (get-funcs object) object]
 )
 
 (defn gen-func-results
-"each function takes the id it is called from 
- and the object that matches that id"
+"Calls the functions related to id for a single object.
+ passes them the object they came from, and its id"
 [[id funcs object]]
-(reduce #(into %1 (%2 id object)) [] funcs))
+(if (empty? funcs) 
+nil
+(reduce #(into %1 (%2 id object)) [] funcs)))
 
 (defn get-object-changes [object]
+"is passed a vector containing an id object pair
+returns a vector containing the results of passing the id
+and object to the functions"
 (->> object
- (gen-id-funcs)
- (gen-func-results)
+ (gen-id-funcs) ;pairs the id with the objects functions and the object to apply them to
+ (gen-func-results) ;applies the functions to both the object and the id, returning a list of changes
  ))
 
 (defn gen-change [state] 
+
 (->> state
-(map #(get-object-changes %))
+(map #(get-object-changes %)) ;gets the changes to be made to state from each object
+(remove nil?) ;takes out the objects that had no changes
 (apply into) ;;combines the returned change lists into single list
 (reduce change-merge);;merges the changes into a single map
 ))
@@ -163,12 +180,14 @@ next-y (move-single y vy)]
 (defn update-game 
 "the game state tick function"
 [] 
-(->> @game-state 
+(let [game @game-state]
+(->> game 
 (gen-change)
+(apply-merge game)
 ;(call-collision-funcs [:bounce])
 (reset! game-state))
 (reset! tick-count (inc @tick-count))
-(reset! tick-total (inc @tick-total)))
+(reset! tick-total (inc @tick-total))))
 
 ;GRAPHICS
 (defn graphics [state ctx] 
@@ -195,7 +214,7 @@ next-y (move-single y vy)]
 ;STATE VARS
 (def game-state (atom {
 ;collisions is 0
-	;	0 {}
+	0 {:funcs {}}
 
 	   1
 	   {:x 4
