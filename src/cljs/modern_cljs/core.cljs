@@ -34,8 +34,8 @@
 (defn return-one [object] #(+ 1 1))
 
 ;dont forget that wrappers will make this seemingly weird structure invisible
-(defn return-1 [id object] [{id {:x [#(+ % 55) 1]}}])
-(defn return-2 [id object] [{id {:x [#(+ % 22) 3]}} {id {:x [#(+ % 22) 2]}}])
+(defn return-1 [id object] [{id {:x [#(+ % .5) 1]}}])
+(defn return-2 [id object] [{id {:x [#(identity 200) 1]}} {id {:x [#(identity 100) 2]}}])
 
 (defn change-atom-where [atomic conditional changes]
 (->> @atomic
@@ -192,8 +192,9 @@ and object to the functions"
 ;GRAPHICS
 (defn graphics [state ctx] 
  (.clearRect ctx 0 0  c-width c-height)
- (doseq [object @state] 
-   ((:draw object) object ctx))
+ (doseq [[id object] state] 
+   (if (contains? object :draw)
+   ((:draw object) object ctx)))
  (reset! fps (inc @fps)))
 
 (defn draw-rectangle
@@ -247,13 +248,13 @@ and object to the functions"
 (def open-id (atom (+ 1 (count @game-state))))
 
 ;;INTERVALS
-;(defn graphics-interval []
-;(graphics game-state context)
-;(js/requestAnimationFrame graphics-interval))
-;(js/requestAnimationFrame graphics-interval)
-;(def update-interval (js/setInterval #(update-game) (/ 1000 50)))
+(defn graphics-interval []
+(graphics @game-state context)
+(js/requestAnimationFrame graphics-interval))
+(js/requestAnimationFrame graphics-interval)
+(def update-interval (js/setInterval #(update-game) (/ 1000 50)))
 ;(def graphics-interval (js/setInterval #(graphics context) (/ 1000 50)))
-;(def per-second-interval (js/setInterval reset-count 1000))
+(def per-second-interval (js/setInterval reset-count 1000))
 ))
 
 ;(require '[modern-cljs.core :as c] :reload)
