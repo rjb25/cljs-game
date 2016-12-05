@@ -34,8 +34,9 @@
 (defn return-one [object] #(+ 1 1))
 
 ;dont forget that wrappers will make this seemingly weird structure invisible
-(defn return-1 [id object] [{id {:x [#(+ % .5) 1]}}])
-(defn return-2 [id object] [{id {:x [#(identity 200) 1]}} {id {:x [#(identity 100) 2]}}])
+(defn return-1 [id object] {id {:x [#(+ % .5) 1]}})
+;could make variables like attack, move etc and only choose for special cases for the priorities.
+(defn return-2 [id object] {id {:x [#(+ % .5) 1]} 2 {:y [#(+ % .5) 5]}})
 
 (defn change-atom-where [atomic conditional changes]
 (->> @atomic
@@ -117,6 +118,7 @@ next-y (move-single y vy)]
 
 ;CORE
 ;fill out change as a default system for function returns allows me to change all funcs in one place 
+;maybe make this a macro?
 (defn change [id what func value])
 ;http://stackoverflow.com/questions/17327733/merge-two-complex-data-structures
 ;Apply the sort when you go to use the functions
@@ -154,7 +156,7 @@ and the object to apply those functions to"
 [[id funcs object]]
 (if (empty? funcs) 
 nil
-(reduce #(into %1 (%2 id object)) [] funcs)))
+(reduce #(conj %1 (%2 id object)) [] funcs)))
 
 (defn get-object-changes [object]
 "is passed a vector containing an id object pair
@@ -166,7 +168,6 @@ and object to the functions"
  ))
 
 (defn gen-change [state] 
-
 (->> state
 (map #(get-object-changes %)) ;gets the changes to be made to state from each object
 (remove nil?) ;takes out the objects that had no changes
