@@ -13,10 +13,21 @@
 ;; have all type functions (ex. :move :boundary :on-enemy) also be randomly inherited on mating
 
 (ns modern-cljs.core
-(:require-macros [modern-cljs.macros :refer [default]])
+(:require-macros [modern-cljs.macros :refer [default evaluate evaluate-bad]])
 )
 (enable-console-print!)
-(print (let [id 1] (default {:x 5})))
+;(print (let [id 4] (default {:x [5 5]})))
+;(let [id 69]
+;(print {69 {:x [#(identity 5) 500]}})
+;(print (default {:x 5}))
+;(print (default {id {:x 5}}))
+;(print (default {:x [5 500]}))
+;(print (default {1 {:x [#(+ 1 5 %) 1]}}))
+;(print (default {1 {:x #(+ 1 5 %) }}))
+;(print (default {1 {:x #(+ 1 5 %) }}))
+;)
+;(print (macroexpand '(default {:x [#(+ 4 5) 500]})))
+;(print (macroexpand '(default {:x #(+ 5 6)}))))
 
 ;DECLARATIONS
 (declare context)
@@ -34,7 +45,7 @@
 (defn return-one [object] #(+ 1 1))
 
 ;dont forget that wrappers will make this seemingly weird structure invisible
-(defn return-1 [id object] (default {:x [5 50]}))
+(defn return-1 [id object] {id {:x [#(+ % .5) 200]}})
 ;could make variables like attack, move etc and only choose for special cases for the priorities.
 (defn return-2 [id object] {id {:x [#(+ % .5) 1]} 2 {:y [#(+ % .5) 5]}})
 
