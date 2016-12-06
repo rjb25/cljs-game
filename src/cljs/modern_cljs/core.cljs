@@ -13,10 +13,10 @@
 ;; have all type functions (ex. :move :boundary :on-enemy) also be randomly inherited on mating
 
 (ns modern-cljs.core
-(:require [tailrecursion.priority-map :refer [priority-map priority-map-by]]))
+(:require-macros [modern-cljs.macros :refer [default]])
+)
 (enable-console-print!)
-
-(def prior (priority-map :a 2 :b 3 :c 1))
+(print (let [id 1] (default {:x 5})))
 
 ;DECLARATIONS
 (declare context)
@@ -34,7 +34,7 @@
 (defn return-one [object] #(+ 1 1))
 
 ;dont forget that wrappers will make this seemingly weird structure invisible
-(defn return-1 [id object] {id {:x [#(+ % .5) 1]}})
+(defn return-1 [id object] (default {:x [5 50]}))
 ;could make variables like attack, move etc and only choose for special cases for the priorities.
 (defn return-2 [id object] {id {:x [#(+ % .5) 1]} 2 {:y [#(+ % .5) 5]}})
 
@@ -108,7 +108,7 @@ next-y (move-single y vy)]
 next-y (move-single y vy)]
 (merge
 (if (outside next-x x-min x-max)
-{:vx (* vx -1)})
+{:vx #(* % -1)})
 (if (outside next-y y-min y-max)
 {:vy (* vy -1)}))))
 
@@ -119,7 +119,7 @@ next-y (move-single y vy)]
 ;CORE
 ;fill out change as a default system for function returns allows me to change all funcs in one place 
 ;maybe make this a macro?
-(defn change [id what func value])
+;(defn change [id what func value])
 ;http://stackoverflow.com/questions/17327733/merge-two-complex-data-structures
 ;Apply the sort when you go to use the functions
 (defn change-merge [change-list-1 change-list-2]
