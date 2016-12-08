@@ -13,40 +13,29 @@
 ;; have all type functions (ex. :move :boundary :on-enemy) also be randomly inherited on mating
 
 (ns modern-cljs.core
-(:require-macros [modern-cljs.macros :refer [default evaluate evaluate-bad]])
-)
+(:require-macros [modern-cljs.macros :refer [default evaluate evaluate-bad]]))
 (enable-console-print!)
-;(print (let [id 4] (default {:x [5 5]})))
-;(let [id 69]
-;(print {69 {:x [#(identity 5) 500]}})
-;(print (default {:x 5}))
-;(print (default {id {:x 5}}))
-;(print (default {:x [5 500]}))
-;(print (default {1 {:x [#(+ 1 5 %) 1]}}))
-;(print (default {1 {:x #(+ 1 5 %) }}))
-;(print (default {1 {:x #(+ 1 5 %) }}))
-;)
-;(print (macroexpand '(default {:x [#(+ 4 5) 500]})))
-;(print (macroexpand '(default {:x #(+ 5 6)}))))
 
 ;DECLARATIONS
 (declare context)
 (declare game-state)
 (declare c-width)
 (declare c-height)
+(declare draw-rectangle)
+(declare ident-or-val)
 
 ;FRAMES
 (def fps (atom 0))
 (def tick-count (atom 0))
+(def available-id (atom 100))
+(def available-pos (atom 1))
 (def tick-total (atom 0))
 (defn reset-count [] (.log js/console @fps @tick-count @tick-total) (reset! fps 0)(reset! tick-count 0))
 
 ;DEV
 (defn return-one [object] #(+ 1 1))
 
-;dont forget that wrappers will make this seemingly weird structure invisible
 (defn return-1 [id object] {id {:x [#(+ % .5) 200]}})
-;could make variables like attack, move etc and only choose for special cases for the priorities.
 (defn return-2 [id object] {id {:x [#(+ % .5) 1]} 2 {:y [#(+ % .5) 5]}})
 
 (defn change-atom-where [atomic conditional changes]
@@ -65,66 +54,89 @@
 (conj collection object))
 
 ;;MOVEMENT
-(defn move-single [pos speed]
-(+ pos (/ speed 10)))
-
+(defn move-single [speed]
+#(+ % (/ speed 10)))
+;could still have wrappers if you used a map like{:func #() :val 5 :order}
+;then no need for fn? just contains? :func
+;However storing them in a map means that the recursive interpreter would have to check something
+;other than the data type to see that this is a leaf and not another level to dive into
+;This might be able to be used with a back out system that checks if not map and grabs the previous map as leaf
+;ups of this would be some clarity, and flexability. Downs would be complexity and in some sense less clarity through lack of consistency.
+;so move would look like
+;defaults seemed to be adding more complexity than it was taking away
+;(defn move
+;[id {:keys [x y vx vy]}]
+; {id {:x {:func #(+ (/ vx   :y [#(+ (/ vy 10) %)]}})
+; hmm not so simple very quick, doesnt seem worth the trouble of cleaning
+; however having this many anonymous functions could hurt modularity
+; you could make macros that make these anonymous functions if they are used too frequently
 (defn move
-[[id {:keys [x y vx vy]}]]
- [id {:x #(+ (/ vx 10) %) :y #(+ (/ vy 10) %)}])
+[id {:keys [x y vx vy] :or {vx 0 vy 0}}]
+ {id {:x [(move-single vx) 500] :y [(move-single vy) 500]}})
 ;(defn move
 ;[{:keys [x y vx vy]}]
 ; {:x (move-single x vx) :y (move-single y vy)})
 
-(defn add-diff [num1 num2]
-(+ num1 (- num1 num2)))
+;(defn add-diff [num1 num2]
+;(+ num1 (- num1 num2)))
 ;;make a function that is "going out of boundary"
 ;next four functions are eerily similar. HOWEVER some have different cases of what to do on each bound
-(defn boundary-single 
-"moves x or y by speed and bounces back if out of bounds, staying in box" 
-[next-pos minimum maximum]
-(if (> next-pos maximum) (add-diff maximum next-pos)
-(if (< next-pos minimum) (add-diff minimum next-pos)
-next-pos)))
+;(defn boundary-single 
+;"moves x or y by speed and bounces back if out of bounds, staying in box" 
+;[next-pos minimum maximum]
+;(if (> next-pos maximum) (add-diff maximum next-pos)
+;(if (< next-pos minimum) (add-diff minimum next-pos)
+;next-pos)))
 
-(defn boundary
-"putting x and y together"
-[{:keys [x y vx vy]}]
- {:x (boundary-single (move-single x vx) 0 c-width) :y (boundary-single (move-single y vy) 0 c-height)})
+;(defn boundary
+;"putting x and y together"
+;[{:keys [x y vx vy]}]
+; {:x (boundary-single (move-single vx) 0 c-width) :y (boundary-single (move-single vy) 0 c-height)})
 
 (defn wrap-single 
-"will wrap around if out of boundary globe style" 
-[keyname next-pos minimum maximum]
-(if (> next-pos maximum) {keyname minimum}
-(if (< next-pos minimum) {keyname maximum})))
+"will wrap around if out of boundary globe style
+should never have things drawn out of boundary" 
+[minimum maximum]
+#(if (> % maximum)  (+ (rem (- % maximum) (- maximum minimum)) minimum)
+(if (< % minimum)  (+ (rem (- % minimum) (- maximum minimum)) maximum)
+%)))
 
 (defn wrap
-"putting x and y together"
-[{:keys [x y vx vy x-min x-max y-min y-max] :or {x-min 0 x-max c-width y-min 0 y-max c-height}}]
-(let [next-x (move-single x vx)
-next-y (move-single y vy)]
-(merge (wrap-single :x next-x x-min x-max)  (wrap-single :y next-y y-min y-max))))
+"in general should happen after movement hence the order 1000"
+[id {:keys [x y vx vy x-min x-max y-min y-max] :or {x-min 0 x-max c-width y-min 0 y-max c-height}}]
+{id {:x [(wrap-single x-min x-max) 1000]  :y [(wrap-single y-min y-max) 1000]}})
 
-(defn takes-func 
-[func]
-(func 1 1 1))
+(defn abs [n] (max n (- n)))
 
-(defn outside
+(defn neg [n] (* (abs n) -1))
+
+(defn go-back
 [pos minimum maximum]
-(or (> pos maximum) (< pos minimum)))
+(if (> pos maximum) #(neg %)
+(if (< pos minimum) #(abs %) identity)))
 
-(defn bounce-in-boundary 
-"changes vx or vy if outside boundary"
-[{:keys [x y vx vy x-min x-max y-min y-max] :or {x-min 0 x-max c-width y-min 0 y-max c-height}}]
-(let [next-x (move-single x vx)
-next-y (move-single y vy)]
-(merge
-(if (outside next-x x-min x-max)
-{:vx #(* % -1)})
-(if (outside next-y y-min y-max)
-{:vy (* vy -1)}))))
+(defn bounce-in-boundary
+"if was outside boundary will be going toward said boundary"
+[id {:keys [x y vx vy x-min x-max y-min y-max] :or {x-min 0 x-max c-width y-min 0 y-max c-height}}]
+{id {:vx [(go-back x x-min x-max) 500]
+     :vy [(go-back y y-min y-max) 500]}})
 
-(defn accelerate [{:keys [vx vy]}]
-{:vx (+ vx .01) :vy (+ vy .01)})
+;(defn accelerate [{:keys [vx vy]}]
+;{:vx (+ vx .01) :vy (+ vy .01)})
+;CREATION
+(defn create
+"A lot of tears could be fixed here if numbers could turn into set 500
+So the real problem is functions that mark objects that may or may not have been marked
+fixed for now with let, may revisit later"
+[id {:keys [created]}]
+(let [new-id @available-id
+      make-truthy (ident-or-val created true 500)]
+(if (not created)
+(do (swap! available-id inc)
+{id {:created make-truthy} new-id {:x 1 :y 1 :vx 10 :vy 10 :funcs {:move #'move} :draw #'draw-rectangle}})
+nil)))
+
+   	   
 ;COLLISION
 
 ;CORE
@@ -133,15 +145,24 @@ next-y (move-single y vy)]
 ;(defn change [id what func value])
 ;http://stackoverflow.com/questions/17327733/merge-two-complex-data-structures
 ;Apply the sort when you go to use the functions
-(defn change-merge [change-list-1 change-list-2]
+(defn ident-or-val 
+"If no value, will return just the value if there is a value it will return a change function"
+[value to order] (if (nil? value) to [#(identity to) order]))
+(defn change-merge 
+"how do I handle wanting to set a new value when there may or may not be a conflict
+anonymous functions only work when there is a conflict
+Basically if there is no conflict the anonymous function will become the value
+ANSWER check it at function level not here"
+[change-list-1 change-list-2]
   (merge-with (fn [x y]
                 (cond (map? x) (change-merge x y) 
                       (vector? x) (list x y)
 		      (list? x) (conj x y)
                       :else x)) 
                  change-list-1 change-list-2))
-(defn apply-merge [game all-changes]
+(defn apply-merge 
   "in this function first represents the function and second the priority"
+[game all-changes]
   (merge-with (fn [x y]
                 (cond (map? y) (apply-merge x y) 
                       (vector? y) ((first y) x)
@@ -182,21 +203,18 @@ and object to the functions"
 (->> state
 (map #(get-object-changes %)) ;gets the changes to be made to state from each object
 (remove nil?) ;takes out the objects that had no changes
-(apply into) ;;combines the returned change lists into single list
+(reduce #(into %1 %2) []) ;;combines the returned change lists into single list
 (reduce change-merge);;merges the changes into a single map
 ))
-(defn apply-changes-in-order 
-[]
-)
-
+;UPDATE
 (defn update-game 
 "the game state tick function"
 [] 
 (let [game @game-state]
+;(.log js/console (str game))
 (->> game 
 (gen-change)
 (apply-merge game)
-;(call-collision-funcs [:bounce])
 (reset! game-state))
 (reset! tick-count (inc @tick-count))
 (reset! tick-total (inc @tick-total))))
@@ -223,36 +241,47 @@ and object to the functions"
 (def context (.getContext (.getElementById js/document "canvas") "2d"))
 (def c-height (.-height (.getElementById js/document "canvas")))
 (def c-width (.-width (.getElementById js/document "canvas")))
-
+;merge only handles exactly two objects with functions?
 ;STATE VARS
 (def game-state (atom {
 ;collisions is 0
-	0 {:funcs {}}
-
+	;0 {:funcs {}}
 	   1
 	   {:x 4
      	   :y 15
-	;   :size 150
-	   :vx 15
+:x-min 1000 
+	   :size 150
+	   :vx -150
 	   :vy 15
 	   :funcs {
-:test2 #'return-2
-:test #'return-1
-;	   :move #'move
+	:create #'create
+	   :move #'move
 ;	   :jargo #'move
-	   ;:boundary #'wrap
+	   :boundary #'wrap
 	}
    	   :draw #'draw-rectangle
 	}
 	   2
 	   {:x 4
 	   :y 150
+:x-min 1000
 	   :vx 7
 	   :vy 25
 	:funcs {
-:test #'return-1
-;	   :move #'move
-	   ;:boundary #'bounce-in-boundary
+	   :move #'move
+	:boundary #'bounce-in-boundary
+	}
+	   :draw #'draw-rectangle
+}
+	   3
+	   {:x 4
+	   :y 150
+:x-min 1000
+	   :vx 8
+	   :vy 25
+	:funcs {
+	   :move #'move
+	:boundary #'bounce-in-boundary
 	}
 	   :draw #'draw-rectangle
 }
@@ -266,7 +295,7 @@ and object to the functions"
 (js/requestAnimationFrame graphics-interval)
 (def update-interval (js/setInterval #(update-game) (/ 1000 50)))
 ;(def graphics-interval (js/setInterval #(graphics context) (/ 1000 50)))
-(def per-second-interval (js/setInterval reset-count 1000))
+;(def per-second-interval (js/setInterval reset-count 1000))
 ))
 
 ;(require '[modern-cljs.core :as c] :reload)

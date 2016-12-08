@@ -3,7 +3,7 @@
 (defmacro print-is [what] (print what))
 (defn set-default [[ch-key ch-val]]	
  (cond  (map? ch-val) {ch-key (check-type ch-val)}
-	(= clojure.lang.Cons (type ch-val))  `{~ch-key [~ch-val 40]} ;here is the faulty case
+	(fn? (eval ch-val))  `{~ch-key [~ch-val 40]} ;here is the faulty case
 	(vector? ch-val) (if (not (fn? (first ch-val)))
 			 {ch-key [`#(identity ~(first ch-val)) (second ch-val)]}
 			 `{~ch-key ~ch-val})
