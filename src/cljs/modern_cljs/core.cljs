@@ -138,6 +138,7 @@ nil)))
 
    	   
 ;COLLISION
+;Do get nearest point for both based on center of other then check which nearest point is closer to one of the centers
 
 ;CORE
 ;fill out change as a default system for function returns allows me to change all funcs in one place 
@@ -152,12 +153,19 @@ nil)))
 "how do I handle wanting to set a new value when there may or may not be a conflict
 anonymous functions only work when there is a conflict
 Basically if there is no conflict the anonymous function will become the value
-ANSWER check it at function level not here"
+ANSWER check it at function level not here
+This function merges and at conflict groups"
 [change-list-1 change-list-2]
   (merge-with (fn [x y]
+;typically under the assumption that both y and x are vectors to start
+; assumed       (no-x?) y
+; really making the work here is being lazy, and loses specificity
+; Makes things not break when really they should be breaking
                 (cond (map? x) (change-merge x y) 
                       (vector? x) (list x y)
 		      (list? x) (conj x y)
+; at this point
+; x must be a value so (value? x) else x
                       :else x)) 
                  change-list-1 change-list-2))
 (defn apply-merge 
@@ -221,7 +229,7 @@ and object to the functions"
 
 ;GRAPHICS
 (defn graphics [state ctx] 
- (.clearRect ctx 0 0  c-width c-height)
+ (.clearRect ctx 0 0 c-width c-height)
  (doseq [[id object] state] 
    (if (contains? object :draw)
    ((:draw object) object ctx)))
@@ -231,7 +239,7 @@ and object to the functions"
  [{:keys [x y size] :or {size 15}} ctx]
  (.beginPath ctx)
  (set! (.-fillStyle ctx) "red")
- (.fillRect ctx x y size size)
+ (.fillRect ctx (- x (/ size 2)) (- y (/ size 2)) size size)
  (.closePath ctx))
 ;One time events
 (.addEventListener
@@ -295,7 +303,7 @@ and object to the functions"
 (js/requestAnimationFrame graphics-interval)
 (def update-interval (js/setInterval #(update-game) (/ 1000 50)))
 ;(def graphics-interval (js/setInterval #(graphics context) (/ 1000 50)))
-;(def per-second-interval (js/setInterval reset-count 1000))
+(def per-second-interval (js/setInterval reset-count 1000))
 ))
 
 ;(require '[modern-cljs.core :as c] :reload)
