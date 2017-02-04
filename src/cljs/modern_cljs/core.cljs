@@ -18,11 +18,14 @@
 
 ;DECLARATIONS
 (declare context)
+(declare create)
 (declare game-state)
 (declare c-width)
 (declare c-height)
 (declare draw-rectangle)
 (declare ident-or-val)
+;DEFAULTS
+(def default-size 15)
 
 ;FRAMES
 (def fps (atom 0))
@@ -123,22 +126,63 @@ should never have things drawn out of boundary"
 
 ;(defn accelerate [{:keys [vx vy]}]
 ;{:vx (+ vx .01) :vy (+ vy .01)})
+
+   	   
+;COLLISION
+;Do get nearest point for both based on center of other then check which nearest point is closer to one of the centers
+
+(defn clamp [pos pos-start pos-end] (cond (> pos pos-end) pos-end 
+					  (< pos pos-start) pos-start
+					  :else pos))
+(defn box-closest [{:keys [x y size] :or {size default-size}} {other-x :x other-y :y}] (let [half (/ size 2)]
+					    		[(clamp other-x (- x half) (+ x half))
+							(clamp other-y (- y half) (+ y half))]))
+(defn distance 
+  "Euclidean distance between 2 points"
+  [[x1 y1] [x2 y2]]                     
+  (Math/sqrt
+   (+ (Math/pow (- x1 x2) 2)
+      (Math/pow (- y1 y2) 2))))
+
+(defn collide? [[id {get-closest-point-1 :point-func x :x y :y :as object-1}] [id-2 {get-closest-point-2 :point-func :as object-2}]] (if (and get-closest-point-2 get-closest-point-1) (let [close-1 (get-closest-point-1 object-1 object-2) close-2 (get-closest-point-2 object-2 object-1)] (> (distance close-1 [x y]) (distance close-2 [x y]))) false))
+;;collision funcs will take myid myobject theirid theirobject
+
+(defn gen-collision
+[[id-1 {func-pairs :on-collision :as obj-1}][id-2 obj-2]]
+(if func-pairs
+(let [funcs (map second func-pairs)]
+(if (empty? funcs) nil
+(reduce #(conj %1 (%2 id-1 obj-1 id-2 obj-2)) [] funcs))
+) nil))
+
+(defn gen-both-collisions [object-1 object-2]
+(if (collide? object-1 object-2)
+(concat (gen-collision object-1 object-2) (gen-collision object-2 object-1)) nil))
+(defn get-collision-changes 
+"if there is a collision, call the change functions passing them themselves and what they collided with. Take those return changes and collect them into a vector"
+[state]
+(if (empty? (rest state)) [] 
+(let [next-step (get-collision-changes (rest state))]
+;;reduce because more changes than list
+(concat (reduce #(into %1 (gen-both-collisions (first state) %2)) [] (rest state)) next-step)
+)))
 ;CREATION
 (defn create
 "A lot of tears could be fixed here if numbers could turn into set 500
 So the real problem is functions that mark objects that may or may not have been marked
 fixed for now with let, may revisit later"
-[id {:keys [created]}]
+[id {:keys [on-collision created]} id-2]
 (let [new-id @available-id
       make-truthy (ident-or-val created true 500)]
 (if (not created)
 (do (swap! available-id inc)
-{id {:created make-truthy} new-id {:x 1 :y 1 :vx 10 :vy 10 :funcs {:move #'move} :draw #'draw-rectangle}})
-nil)))
 
-   	   
-;COLLISION
-;Do get nearest point for both based on center of other then check which nearest point is closer to one of the centers
+{id {:created make-truthy} id-2 {:created make-truthy} new-id {:x (rand-int 1500) :y (rand-int 1000) :vx (rand-int 50) :vy (rand-int 50) :funcs {:move #'move :boundary #'bounce-in-boundary} 
+:on-collision on-collision
+:point-func #'box-closest
+:size 10
+:draw #'draw-rectangle}})
+nil)))
 
 ;CORE
 ;fill out change as a default system for function returns allows me to change all funcs in one place 
@@ -177,43 +221,26 @@ This function merges and at conflict groups"
 		      (list? y) (reduce #((first %2) %1) x (sort-by second < y))
                       :else x)) 
                  game all-changes))
-(defn get-funcs
-[object]
- (->> object
- (:funcs)
- (map #(second %))))
 
-(defn gen-id-funcs
-"generates a vector containing id, the functions that id had
-and the object to apply those functions to"
-[[id object]]
-[id (get-funcs object) object]
-)
 
-(defn gen-func-results
-"Calls the functions related to id for a single object.
- passes them the object they came from, and its id"
-[[id funcs object]]
+(defn get-object-changes
+"gets a vector  [func-1-change func-2-change func-3-change]"
+[[id {func-pairs :funcs :as object}]]
+(let [funcs (map second func-pairs)]
 (if (empty? funcs) 
 nil
-(reduce #(conj %1 (%2 id object)) [] funcs)))
+(reduce #(conj %1 (%2 id object)) [] funcs))))
 
-(defn get-object-changes [object]
-"is passed a vector containing an id object pair
-returns a vector containing the results of passing the id
-and object to the functions"
-(->> object
- (gen-id-funcs) ;pairs the id with the objects functions and the object to apply them to
- (gen-func-results) ;applies the functions to both the object and the id, returning a list of changes
- ))
-
-(defn gen-change [state] 
-(->> state
-(map #(get-object-changes %)) ;gets the changes to be made to state from each object
-(remove nil?) ;takes out the objects that had no changes
-(reduce #(into %1 %2) []) ;;combines the returned change lists into single list
+(defn gen-change 
+"for making object modification map"
+[state] 
+(let [self-changes (reduce #(into %1 (get-object-changes %2)) [] state) ;;gives a list of all changes of all objects
+      collision-changes (get-collision-changes state)
+     changes (concat self-changes collision-changes)]
+(->> changes
+(remove nil?) ;takes out the objects that had no changes. May no longer be necesary.
 (reduce change-merge);;merges the changes into a single map
-))
+)))
 ;UPDATE
 (defn update-game 
 "the game state tick function"
@@ -223,6 +250,14 @@ and object to the functions"
 (->> game 
 (gen-change)
 (apply-merge game)
+;could make collision map be generated from gen-change, but it seems a little annoying
+;being in gen-change would allow for things to have a bigger area of affect than an area of affected, or vice versa using the nearest point vs area
+;each object would have a function that does: "whatever my previous collisions were set them to (new map based on previous state)"
+;This would of course be more timely as each function would need to check for what it is colliding with
+;resulting in double the checks for collision necesary
+;divide functions into what they need
+;however putting this in gen-change adds the un-neaded overhead for order/priority
+;I want everything to be object specific with no globals
 (reset! game-state))
 (reset! tick-count (inc @tick-count))
 (reset! tick-total (inc @tick-total))))
@@ -236,12 +271,12 @@ and object to the functions"
  (reset! fps (inc @fps)))
 
 (defn draw-rectangle
- [{:keys [x y size] :or {size 15}} ctx]
+ [{:keys [x y size] :or {size default-size}} ctx]
  (.beginPath ctx)
  (set! (.-fillStyle ctx) "red")
  (.fillRect ctx (- x (/ size 2)) (- y (/ size 2)) size size)
  (.closePath ctx))
-;One time events
+;One time events that occur upon page refresh
 (.addEventListener
   js/window
   "DOMContentLoaded"
@@ -251,28 +286,50 @@ and object to the functions"
 (def c-width (.-width (.getElementById js/document "canvas")))
 ;merge only handles exactly two objects with functions?
 ;STATE VARS
+;may eventually seperate functions based on what they need, so some functions might need whole game-state, others might need collisions and self,
+;why not just pass every object whole game state and have it take what it needs? because it is not efficient.
+;I need a better sorting system
+;For collisions just add :data
+;have collision be married with collision funcs. which are functions that are called on collision
+;gen-change then gen-collision-change
+;the difference being that gen-collision change calls the funcs with self and other, rather than with only self and id
+;call while generating makes the most sense for collisions
+;are they in me? if so call my collision functions with me and them
+;put all shape funcionality under :shape maybe? so that when mating you do not get mixed shape issues
+;however this runs into issues with the difficulty of the merge
+;I think it is ok to shift this complexity to the side of the mating function
 (def game-state (atom {
-;collisions is 0
-	;0 {:funcs {}}
 	   1
-	   {:x 4
+	   {:x 1001
      	   :y 15
-:x-min 1000 
-	   :size 150
+	:x-min 1000 
+	:point-func #'box-closest
 	   :vx -150
 	   :vy 15
-	   :funcs {
+;I first asked myself why have a seperate section for these? How is this different than a section for boundary funcs or any other conditional?
+;The answer is that this is multiple conditionals with multilpe things being affected depending on the conditionals. Not quite as simple as boundary.
+;and definitely worthy of seperate section.
+	   :on-collision{
 	:create #'create
+		}
+;Why is this a map and not a vector? So that merges can happen in mating, and so that functions could add, remove, or replace functions by type.
+;eg two collide one has the alcholic affect, which changes, or wraps the move function to drunken.
+	   :funcs {
 	   :move #'move
+;this will grab the entire game state and return a change object to collisions for self to set it to
 ;	   :jargo #'move
 	   :boundary #'wrap
 	}
    	   :draw #'draw-rectangle
 	}
 	   2
-	   {:x 4
+	   {:x 40
 	   :y 150
+	:point-func #'box-closest
 :x-min 1000
+	   :on-collision{
+	:create #'create
+		}
 	   :vx 7
 	   :vy 25
 	:funcs {
@@ -282,8 +339,12 @@ and object to the functions"
 	   :draw #'draw-rectangle
 }
 	   3
-	   {:x 4
+	   {:x 40
 	   :y 150
+	:point-func #'box-closest
+	   :on-collision{
+	:create #'create
+		}
 :x-min 1000
 	   :vx 8
 	   :vy 25
