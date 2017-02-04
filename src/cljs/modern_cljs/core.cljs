@@ -34,6 +34,10 @@
 (def available-pos (atom 1))
 (def tick-total (atom 0))
 (defn reset-count [] (.log js/console @fps @tick-count @tick-total) (reset! fps 0)(reset! tick-count 0))
+;MATH
+(defn abs [n] (max n (- n)))
+(defn average-int [n1 n2] (quot (+ n1 n2) 2))
+(defn neg [n] (* (abs n) -1))
 
 ;DEV
 (defn return-one [object] #(+ 1 1))
@@ -109,9 +113,6 @@ should never have things drawn out of boundary"
 [id {:keys [x y vx vy x-min x-max y-min y-max] :or {x-min 0 x-max c-width y-min 0 y-max c-height}}]
 {id {:x [(wrap-single x-min x-max) 1000]  :y [(wrap-single y-min y-max) 1000]}})
 
-(defn abs [n] (max n (- n)))
-
-(defn neg [n] (* (abs n) -1))
 
 (defn go-back
 [pos minimum maximum]
@@ -171,15 +172,15 @@ should never have things drawn out of boundary"
 "A lot of tears could be fixed here if numbers could turn into set 500
 So the real problem is functions that mark objects that may or may not have been marked
 fixed for now with let, may revisit later"
-[id {:keys [on-collision created]} id-2]
+[id {:keys [point-func on-collision created R G B] :or {R 0 G 0 B 0}} id-2 {R-2 :R G-2 :G B-2 :B :or {R-2 0 G-2 0 B-2 0}}]
 (let [new-id @available-id
       make-truthy (ident-or-val created true 500)]
 (if (not created)
 (do (swap! available-id inc)
 
-{id {:created make-truthy} id-2 {:created make-truthy} new-id {:x (rand-int 1500) :y (rand-int 1000) :vx (rand-int 50) :vy (rand-int 50) :funcs {:move #'move :boundary #'bounce-in-boundary} 
+{id {:created make-truthy} id-2 {:created make-truthy} new-id {:x (rand-int 1500) :R (average-int R R-2) :G (average-int G G-2) :B (average-int B B-2) :y (rand-int 1000) :vx (rand-int 50) :vy (rand-int 50) :funcs {:move #'move :boundary #'bounce-in-boundary} 
 :on-collision on-collision
-:point-func #'box-closest
+:point-func point-func
 :size 10
 :draw #'draw-rectangle}})
 nil)))
@@ -236,7 +237,7 @@ nil
 [state] 
 (let [self-changes (reduce #(into %1 (get-object-changes %2)) [] state) ;;gives a list of all changes of all objects
       collision-changes (get-collision-changes state)
-     changes (concat self-changes collision-changes)]
+      changes (concat self-changes collision-changes)]
 (->> changes
 (remove nil?) ;takes out the objects that had no changes. May no longer be necesary.
 (reduce change-merge);;merges the changes into a single map
@@ -271,9 +272,9 @@ nil
  (reset! fps (inc @fps)))
 
 (defn draw-rectangle
- [{:keys [x y size] :or {size default-size}} ctx]
+ [{:keys [x y size R G B] :or {size default-size R 0 G 0 B 0}} ctx]
  (.beginPath ctx)
- (set! (.-fillStyle ctx) "red")
+ (set! (.-fillStyle ctx) (str "rgb("R","G","B")"))
  (.fillRect ctx (- x (/ size 2)) (- y (/ size 2)) size size)
  (.closePath ctx))
 ;One time events that occur upon page refresh
@@ -304,6 +305,7 @@ nil
      	   :y 15
 	:x-min 1000 
 	:point-func #'box-closest
+        :R 255
 	   :vx -150
 	   :vy 15
 ;I first asked myself why have a seperate section for these? How is this different than a section for boundary funcs or any other conditional?
@@ -315,6 +317,7 @@ nil
 ;Why is this a map and not a vector? So that merges can happen in mating, and so that functions could add, remove, or replace functions by type.
 ;eg two collide one has the alcholic affect, which changes, or wraps the move function to drunken.
 	   :funcs {
+	:create #'create
 	   :move #'move
 ;this will grab the entire game state and return a change object to collisions for self to set it to
 ;	   :jargo #'move
@@ -326,6 +329,7 @@ nil
 	   {:x 40
 	   :y 150
 	:point-func #'box-closest
+:G 255
 :x-min 1000
 	   :on-collision{
 	:create #'create
@@ -341,6 +345,7 @@ nil
 	   3
 	   {:x 40
 	   :y 150
+:B 255
 	:point-func #'box-closest
 	   :on-collision{
 	:create #'create
