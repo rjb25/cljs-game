@@ -127,7 +127,19 @@ should never have things drawn out of boundary"
 
 ;(defn accelerate [{:keys [vx vy]}]
 ;{:vx (+ vx .01) :vy (+ vy .01)})
-
+;TIME
+(defn get-timers-change [M] (into {} (map (fn [[ky vl]] 
+					      (if (<= vl 0) [ky [(fn [current] (identity false))  500]] 
+							    [ky [#(- % 1) 500]])) 
+					  M)))
+(defn timer
+"Reduces the number on all timers. Then sets value to false if out of time."
+[id {:keys [timers]}]
+(if timers 
+(let [changes (get-timers-change timers)]
+{id {:timers changes}}
+)
+nil))
    	   
 ;COLLISION
 ;Do get nearest point for both based on center of other then check which nearest point is closer to one of the centers
@@ -178,7 +190,7 @@ fixed for now with let, may revisit later"
 (if (not created)
 (do (swap! available-id inc)
 
-{id {:created make-truthy} id-2 {:created make-truthy} new-id {:x (rand-int 1500) :R (average-int R R-2) :G (average-int G G-2) :B (average-int B B-2) :y (rand-int 1000) :vx (rand-int 50) :vy (rand-int 50) :funcs {:move #'move :boundary #'bounce-in-boundary} 
+{id {:created make-truthy} id-2 {:created make-truthy} new-id {:x (rand-int 1500) :R (average-int R R-2) :G (average-int G G-2) :B (average-int B B-2) :y (rand-int 600) :vx (rand-int 50) :vy (rand-int 50) :funcs {:move #'move :boundary #'bounce-in-boundary} 
 :on-collision on-collision
 :point-func point-func
 :size 10
@@ -195,7 +207,9 @@ nil)))
 "If no value, will return just the value if there is a value it will return a change function"
 [value to order] (if (nil? value) to [#(identity to) order]))
 (defn change-merge 
-"how do I handle wanting to set a new value when there may or may not be a conflict
+"
+
+how do I handle wanting to set a new value when there may or may not be a conflict
 anonymous functions only work when there is a conflict
 Basically if there is no conflict the anonymous function will become the value
 ANSWER check it at function level not here
@@ -207,7 +221,12 @@ This function merges and at conflict groups"
 ; really making the work here is being lazy, and loses specificity
 ; Makes things not break when really they should be breaking
                 (cond (map? x) (change-merge x y) 
+		      ;single change mergeing with another single change
                       (vector? x) (list x y)
+		      ;multiple changes and multiple changes mergeing
+		      ;only if you had a single function that had to return two changes to the same key at different orders.
+		      (and (list? x) (list? y)) (into x y)
+		      ;multiple changes and single change mergeing
 		      (list? x) (conj x y)
 ; at this point
 ; x must be a value so (value? x) else x
@@ -220,7 +239,7 @@ This function merges and at conflict groups"
                 (cond (map? y) (apply-merge x y) 
                       (vector? y) ((first y) x)
 		      (list? y) (reduce #((first %2) %1) x (sort-by second < y))
-                      :else x)) 
+                      :else y)) 
                  game all-changes))
 
 
@@ -239,7 +258,7 @@ nil
       collision-changes (get-collision-changes state)
       changes (concat self-changes collision-changes)]
 (->> changes
-(remove nil?) ;takes out the objects that had no changes. May no longer be necesary.
+(remove nil?) ;takes out function changes that ended up being nothing. May not be necessary.
 (reduce change-merge);;merges the changes into a single map
 )))
 ;UPDATE
@@ -293,7 +312,8 @@ nil
 ;For collisions just add :data
 ;have collision be married with collision funcs. which are functions that are called on collision
 ;gen-change then gen-collision-change
-;the difference being that gen-collision change calls the funcs with self and other, rather than with only self and id
+;How on-collision case different then something like on boundary?
+;the difference being that on-collision calls the funcs with self and other, rather than with only self and id
 ;call while generating makes the most sense for collisions
 ;are they in me? if so call my collision functions with me and them
 ;put all shape funcionality under :shape maybe? so that when mating you do not get mixed shape issues
@@ -304,8 +324,12 @@ nil
 	   {:x 1001
      	   :y 15
 	:x-min 1000 
+	
 	:point-func #'box-closest
         :R 255
+        :timers {
+         :mating 30000
+         } 
 	   :vx -150
 	   :vy 15
 ;I first asked myself why have a seperate section for these? How is this different than a section for boundary funcs or any other conditional?
@@ -317,7 +341,7 @@ nil
 ;Why is this a map and not a vector? So that merges can happen in mating, and so that functions could add, remove, or replace functions by type.
 ;eg two collide one has the alcholic affect, which changes, or wraps the move function to drunken.
 	   :funcs {
-	:create #'create
+           :timer #'timer
 	   :move #'move
 ;this will grab the entire game state and return a change object to collisions for self to set it to
 ;	   :jargo #'move
@@ -328,6 +352,9 @@ nil
 	   2
 	   {:x 40
 	   :y 150
+        :timers {
+         :mating 100
+         } 
 	:point-func #'box-closest
 :G 255
 :x-min 1000
@@ -337,6 +364,7 @@ nil
 	   :vx 7
 	   :vy 25
 	:funcs {
+           :timer #'timer
 	   :move #'move
 	:boundary #'bounce-in-boundary
 	}
@@ -346,6 +374,9 @@ nil
 	   {:x 40
 	   :y 150
 :B 255
+        :timers {
+         :mating 100
+         } 
 	:point-func #'box-closest
 	   :on-collision{
 	:create #'create
@@ -354,6 +385,7 @@ nil
 	   :vx 8
 	   :vy 25
 	:funcs {
+           :timer #'timer
 	   :move #'move
 	:boundary #'bounce-in-boundary
 	}
