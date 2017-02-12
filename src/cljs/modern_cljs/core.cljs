@@ -12,6 +12,12 @@
 ;; On collision make a new one with the average of the rgb values
 ;; have all type functions (ex. :move :boundary :on-enemy) also be randomly inherited on mating
 
+;;SYNTAX NOTES
+;;My syntax for changes is a vector containing function then order like [function order]. Short for [function default-order] is just function.
+;;If you actually want to set a value to a function or to a vector use [:to function] or [:to vector] 
+;;There is no way to associate with lists currently and have it work. Lists are reserved for lists of changes.
+;;Why not use maps for the changes? It heavily complicates the core which does the mergeing if I were to use maps for these changes.
+;;:to does not work for setting values to maps.
 (ns modern-cljs.core
 (:require-macros [modern-cljs.macros :refer [default evaluate evaluate-bad]]))
 (enable-console-print!)
@@ -26,6 +32,7 @@
 (declare ident-or-val)
 ;DEFAULTS
 (def default-size 15)
+(def default-order 500)
 
 ;FRAMES
 (def fps (atom 0))
@@ -132,6 +139,11 @@ should never have things drawn out of boundary"
 					      (if (<= vl 0) [ky [(fn [current] (identity false))  500]] 
 							    [ky [#(- % 1) 500]])) 
 					  M)))
+;(defn get-timers-change [Map] (reduce-kv (fn [M k v] 
+;					  (if (<= v 0) (assoc M k false)
+;						       (assoc M k #(- % 1)))
+;					  {} Map))
+
 (defn timer
 "Reduces the number on all timers. Then sets value to false if out of time."
 [id {:keys [timers]}]
@@ -171,6 +183,7 @@ nil))
 (defn gen-both-collisions [object-1 object-2]
 (if (collide? object-1 object-2)
 (concat (gen-collision object-1 object-2) (gen-collision object-2 object-1)) nil))
+
 (defn get-collision-changes 
 "if there is a collision, call the change functions passing them themselves and what they collided with. Take those return changes and collect them into a vector"
 [state]
@@ -185,16 +198,15 @@ nil))
 So the real problem is functions that mark objects that may or may not have been marked
 fixed for now with let, may revisit later"
 [id {:keys [point-func on-collision created R G B] :or {R 0 G 0 B 0}} id-2 {R-2 :R G-2 :G B-2 :B :or {R-2 0 G-2 0 B-2 0}}]
-(let [new-id @available-id
-      make-truthy (ident-or-val created true 500)]
+(let [new-id @available-id]
 (if (not created)
 (do (swap! available-id inc)
 
-{id {:created make-truthy} id-2 {:created make-truthy} new-id {:x (rand-int 1500) :R (average-int R R-2) :G (average-int G G-2) :B (average-int B B-2) :y (rand-int 600) :vx (rand-int 50) :vy (rand-int 50) :funcs {:move #'move :boundary #'bounce-in-boundary} 
-:on-collision on-collision
-:point-func point-func
+{id {:created true} id-2 {:created true} new-id {:x (rand-int 1500) :R (average-int R R-2) :G (average-int G G-2) :B (average-int B B-2) :y (rand-int 600) :vx (rand-int 50) :vy (rand-int 50) :funcs {:move [:to #'move] :boundary [:to #'bounce-in-boundary]} 
+:on-collision [:to on-collision]
+:point-func [:to point-func]
 :size 10
-:draw #'draw-rectangle}})
+:draw [:to #'draw-rectangle]}})
 nil)))
 
 ;CORE
@@ -203,45 +215,92 @@ nil)))
 ;(defn change [id what func value])
 ;http://stackoverflow.com/questions/17327733/merge-two-complex-data-structures
 ;Apply the sort when you go to use the functions
-(defn ident-or-val 
-"If no value, will return just the value if there is a value it will return a change function"
-[value to order] (if (nil? value) to [#(identity to) order]))
-(defn change-merge 
-"
+;Creds to: http://stackoverflow.com/questions/35090158/clojure-apply-a-function-to-leaf-nodes-of-a-map
+;for map-leaves
+;Went non persist due to unfound error
+ (defn map-leaves [f x]
+		(cond
+		 (map? x) 
+		 (persistent! (reduce-kv (fn [out k v]
+			     (assoc! out k (map-leaves f v)))
+		  (transient {})
+		  x))
+			 :else (f x)))
+(defn nth?
+"checks if nth element exists" [v n] (and (vector? v) (< n (count v))))
+(defn get-nth [v n] (if (nth? v n) (nth v n) false))
+(defn get-order [action] (cond (and (= (get-nth action 0) :to) (nth? action 2)) (nth action 2)
+			       (nth? action 1) (second action) 
+			       :else default-order))
+(defn change? [change] (or (fn? change) (fn? (get-nth change 0))))
+(defn strip
+"takes off syntax from actions such as order, :to etc" 
+	[action] 
+	 (cond (= (get-nth action 0) :to) (second action)
+	       (vector? action) (first action)
+	       :else action))
+(defn strip-change
+"takes off function order only
+lighter than strip, but not really necesary" 
+	[action] 
+	 (if (vector? action) (first action)
+	      action))
+(defn reduce-actions "parses over the list looking from end to start for set actions.
+ If it finds one it reduces it over all previously seen changes in correct order.
+ Otherwise it will return a list of changes."
+ [L action] (cond (change? action) (conj L (strip-change action))
+		   :else (reduced (reduce (fn [value change] (change value)) (strip action) L))))
+;;how to abort in reduce?
+(defn sort-and-reduce [leaf] 
+(cond 
+      (change? leaf) (list (strip leaf)) 
+      (vector? leaf) (strip leaf)
+      ;; actions are passed in reverse order to reduce-actions
+      (list? leaf) (reduce reduce-actions (list) (sort-by get-order > leaf))
+      :else leaf
+))
+(defn sort-and-reduce-changes
+"Sorts and interprets each list of changes.
+ Looks for changes that set a value and starts changes from there then applying changes to get a value.
+ If all changes, they are maintained as a change list."
+[all-changes]
+(map-leaves sort-and-reduce all-changes))
 
-how do I handle wanting to set a new value when there may or may not be a conflict
-anonymous functions only work when there is a conflict
-Basically if there is no conflict the anonymous function will become the value
-ANSWER check it at function level not here
-This function merges and at conflict groups"
+
+(defn merge-changes
 [change-list-1 change-list-2]
   (merge-with (fn [x y]
-;typically under the assumption that both y and x are vectors to start
-; assumed       (no-x?) y
-; really making the work here is being lazy, and loses specificity
-; Makes things not break when really they should be breaking
-                (cond (map? x) (change-merge x y) 
-		      ;single change mergeing with another single change
-                      (vector? x) (list x y)
+                (cond (map? x) (merge-changes x y) 
 		      ;multiple changes and multiple changes mergeing
 		      ;only if you had a single function that had to return two changes to the same key at different orders.
 		      (and (list? x) (list? y)) (into x y)
 		      ;multiple changes and single change mergeing
 		      (list? x) (conj x y)
-; at this point
-; x must be a value so (value? x) else x
-                      :else x)) 
+		      ;single change mergeing with another single change
+                      :else (list x y)
+                      )) 
                  change-list-1 change-list-2))
-(defn apply-merge 
-  "in this function first represents the function and second the priority"
+
+
+(defn set-or-mod 
+"This will either set the value to the given value or modify depending on if given a function or a value.
+This may seem weird to do functions here, but it is due to the desire for ordering.
+Another reason is for knowing the current state of a value that may be modified this same iteration by another function."
+[value change] (cond (fn? change) (change value)
+				   (and (vector? change) (not (fn? (first change)))) (first change)
+				   (vector? change) ((first change) value)
+				   :else change))
+
+(defn apply-changes
+"at this point the changes are either lists of change functions or a value to set to"
 [game all-changes]
   (merge-with (fn [x y]
-                (cond (map? y) (apply-merge x y) 
-                      (vector? y) ((first y) x)
-		      (list? y) (reduce #((first %2) %1) x (sort-by second < y))
+                (cond (map? y) (apply-changes x y) 
+		      ;;if a list of changes apply them to current value
+		      (list? y) (reduce (fn [value change] (change value)) x y)
+		      ;;otherwise set the value as the new value
                       :else y)) 
                  game all-changes))
-
 
 (defn get-object-changes
 "gets a vector  [func-1-change func-2-change func-3-change]"
@@ -249,18 +308,17 @@ This function merges and at conflict groups"
 (let [funcs (map second func-pairs)]
 (if (empty? funcs) 
 nil
-(reduce #(conj %1 (%2 id object)) [] funcs))))
+(reduce (fn [L f] (conj L (f id object))) [] funcs))))
 
-(defn gen-change 
+(defn get-changes
 "for making object modification map"
 [state] 
 (let [self-changes (reduce #(into %1 (get-object-changes %2)) [] state) ;;gives a list of all changes of all objects
       collision-changes (get-collision-changes state)
-      changes (concat self-changes collision-changes)]
-(->> changes
-(remove nil?) ;takes out function changes that ended up being nothing. May not be necessary.
-(reduce change-merge);;merges the changes into a single map
-)))
+      changes (concat self-changes collision-changes)
+      cleaned-changes (remove nil? changes)] 
+cleaned-changes))
+
 ;UPDATE
 (defn update-game 
 "the game state tick function"
@@ -268,17 +326,11 @@ nil
 (let [game @game-state]
 ;(.log js/console (str game))
 (->> game 
-(gen-change)
-(apply-merge game)
-;could make collision map be generated from gen-change, but it seems a little annoying
-;being in gen-change would allow for things to have a bigger area of affect than an area of affected, or vice versa using the nearest point vs area
-;each object would have a function that does: "whatever my previous collisions were set them to (new map based on previous state)"
-;This would of course be more timely as each function would need to check for what it is colliding with
-;resulting in double the checks for collision necesary
-;divide functions into what they need
-;however putting this in gen-change adds the un-neaded overhead for order/priority
-;I want everything to be object specific with no globals
-(reset! game-state))
+(get-changes);;round up all changes from all objects functions
+(reduce merge-changes);;merges the changes into a single map
+(sort-and-reduce-changes);;Sorts and interprets each list of changes. Looks for changes that set a value and starts changes from there then applying changes to get a value. If all changes, they are maintained as a change list.
+(apply-changes game);;apply the changes to the current game state
+(reset! game-state));;make the new game state the updated one
 (reset! tick-count (inc @tick-count))
 (reset! tick-total (inc @tick-total))))
 
@@ -321,7 +373,7 @@ nil
 ;I think it is ok to shift this complexity to the side of the mating function
 (def game-state (atom {
 	   1
-	   {:x 1001
+	   {:x 100
      	   :y 15
 	:x-min 1000 
 	
