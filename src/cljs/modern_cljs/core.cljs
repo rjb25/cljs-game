@@ -42,8 +42,18 @@
 (def available-pos (atom 1))
 (def tick-total (atom 0))
 (defn reset-count [] (.log js/console @fps @tick-count @tick-total) (reset! fps 0)(reset! tick-count 0))
+;CLOJURE
+ (defn map-leaves [f x]
+		(cond
+		 (map? x) 
+		 (persistent! (reduce-kv (fn [out k v]
+			     (assoc! out k (map-leaves f v)))
+		  (transient {})
+		  x))
+			 :else (f x)))
 ;MATH
 (defn abs [n] (max n (- n)))
+(defn average [n1 n2] (/ (+ n1 n2) 2))
 (defn average-int [n1 n2] (quot (+ n1 n2) 2))
 (defn neg [n] (* (abs n) -1))
 
@@ -166,22 +176,30 @@ nil))
 (concat (reduce #(into %1 (gen-both-collisions (first state) %2)) [] (rest state)) next-step)
 )))
 ;CREATION
+(defn get-deviance [deviance value] (+ value (- (rand (* (* deviance 2) value)) (* deviance value))))
+;;Also handling :to for functions here
+(defn get-dna [{:keys [deviance] :or {deviance 0}} leaf] (cond (number? leaf) (get-deviance deviance leaf)
+								    (fn? leaf) [:to leaf]))
+(defn deviate [stats] (map-leaves #(get-dna stats %) stats))
+(defn mate-merge [parent-1 parent-2] 
+  (merge-with (fn [p-1 p-2]
+                (cond (map? p-1) (mate-merge p-1 p-2) 
+		      (number? p-1) (average p-1 p-2)
+		      ;;Possibly put a randomizer here, but wait on this.
+                      :else p-1
+                      )) 
+                 parent-1 parent-2))
 (defn create
-"A lot of tears could be fixed here if numbers could turn into set 500
-So the real problem is functions that mark objects that may or may not have been marked
-fixed for now with let, may revisit later"
-[id {:keys [point-func on-collision created R G B] :or {R 0 G 0 B 0}} id-2 {R-2 :R G-2 :G B-2 :B :or {R-2 0 G-2 0 B-2 0}}]
-(let [new-id @available-id]
-(if (not created)
-(do (swap! available-id inc)
+[id {:keys [timers] :as p-1 } id-2 {timers-2 :timers :as p-2}]
+(if (not (or  (:infertile timers)  (:infertile timers-2)))
+(let [new-id @available-id
+      child-average (mate-merge p-1 p-2)
+      child-dna (deviate child-average)
+      timer-child (merge child-dna {:timers {:infertile 10 :alive 30}})]
+(do  (swap! available-id inc)
+ {id {:timers {:infertile 10}} id-2 {:timers {:infertile 10}} new-id timer-child}))
+nil))
 
-{id {:created true} id-2 {:created true} new-id {:x (rand-int 1500) :R (average-int R R-2) :G (average-int G G-2) :B (average-int B B-2) :y (rand-int 600) :vx (rand-int 50) :vy (rand-int 50) :funcs {:move [:to #'move] :boundary [:to #'bounce-in-boundary] :timer [:to #'timer]} 
-:on-collision [:to on-collision]
-:point-func [:to point-func]
-:timers {:alive 50}
-:size 10
-:draw [:to #'draw-rectangle]}})
-nil)))
 ;GLOBAL FUNCS
 (defn pluck-dead [state]
 (into {} (filter (fn [[k v]] (let [timers (:timers v)] (or (:alive timers) (not (contains? timers :alive))))) state)))
@@ -195,14 +213,6 @@ nil)))
 ;Creds to: http://stackoverflow.com/questions/35090158/clojure-apply-a-function-to-leaf-nodes-of-a-map
 ;for map-leaves
 ;Went non persist due to unfound error
- (defn map-leaves [f x]
-		(cond
-		 (map? x) 
-		 (persistent! (reduce-kv (fn [out k v]
-			     (assoc! out k (map-leaves f v)))
-		  (transient {})
-		  x))
-			 :else (f x)))
 (defn nth?
 "checks if nth element exists" [v n] (and (vector? v) (< n (count v))))
 (defn get-nth [v n] (if (nth? v n) (nth v n) false))
@@ -322,10 +332,13 @@ cleaned-changes))
 
 (defn draw-rectangle
  [{:keys [x y size R G B] :or {size default-size R 0 G 0 B 0}} ctx]
+(let [Rint (Math/floor R)
+      Gint (Math/floor G)
+      Bint (Math/floor B)]
  (.beginPath ctx)
- (set! (.-fillStyle ctx) (str "rgb("R","G","B")"))
+ (set! (.-fillStyle ctx) (str "rgb("Rint","Gint","Bint")"))
  (.fillRect ctx (- x (/ size 2)) (- y (/ size 2)) size size)
- (.closePath ctx))
+ (.closePath ctx)))
 ;One time events that occur upon page refresh
 (.addEventListener
   js/window
@@ -349,16 +362,21 @@ cleaned-changes))
 ;put all shape funcionality under :shape maybe? so that when mating you do not get mixed shape issues
 ;however this runs into issues with the difficulty of the merge
 ;I think it is ok to shift this complexity to the side of the mating function
+;Maybe make a default guy generater and make modifications to that guy for differences
 (def game-state (atom {
 	   1
 	   {:x 100
      	   :y 15
 	
 	:point-func #'box-closest
-        :R 255
+        :R 100
+	:G 0
+:deviance .1
+        :B 0
+	:size 15
         :timers {
 	:alive 60
-         :mating 30000
+         :infertile false
          } 
 	   :vx -150
 	   :vy 15
@@ -383,12 +401,15 @@ cleaned-changes))
 	   {:x 40
 	   :y 150
         :timers {
-         :mating 100
+         :infertile false
 	:alive 60
          } 
 	:point-func #'box-closest
-:G 255
-:x-min 1000
+	:size 15
+:R 0
+:deviance .1
+:B 0
+:G 500
 	   :on-collision{
 	:create #'create
 		}
@@ -404,16 +425,19 @@ cleaned-changes))
 	   3
 	   {:x 40
 	   :y 150
+:R 0
+:G 0
 :B 255
+:deviance .1
+	:size 15
         :timers {
-         :mating 100
+         :infertile false
 	:alive 60
          } 
 	:point-func #'box-closest
 	   :on-collision{
 	:create #'create
 		}
-:x-min 1000
 	   :vx 8
 	   :vy 25
 	:funcs {
