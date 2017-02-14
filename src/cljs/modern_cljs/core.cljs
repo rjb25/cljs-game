@@ -32,6 +32,7 @@
 (declare ident-or-val)
 ;DEFAULTS
 (def default-size 15)
+(def update-per-second 58)
 (def default-order 500)
 
 ;FRAMES
@@ -78,34 +79,12 @@
 ;ups of this would be some clarity, and flexability. Downs would be complexity and in some sense less clarity through lack of consistency.
 ;so move would look like
 ;defaults seemed to be adding more complexity than it was taking away
-;(defn move
-;[id {:keys [x y vx vy]}]
-; {id {:x {:func #(+ (/ vx   :y [#(+ (/ vy 10) %)]}})
 ; hmm not so simple very quick, doesnt seem worth the trouble of cleaning
 ; however having this many anonymous functions could hurt modularity
 ; you could make macros that make these anonymous functions if they are used too frequently
 (defn move
 [id {:keys [x y vx vy] :or {vx 0 vy 0}}]
- {id {:x [(move-single vx) 500] :y [(move-single vy) 500]}})
-;(defn move
-;[{:keys [x y vx vy]}]
-; {:x (move-single x vx) :y (move-single y vy)})
-
-;(defn add-diff [num1 num2]
-;(+ num1 (- num1 num2)))
-;;make a function that is "going out of boundary"
-;next four functions are eerily similar. HOWEVER some have different cases of what to do on each bound
-;(defn boundary-single 
-;"moves x or y by speed and bounces back if out of bounds, staying in box" 
-;[next-pos minimum maximum]
-;(if (> next-pos maximum) (add-diff maximum next-pos)
-;(if (< next-pos minimum) (add-diff minimum next-pos)
-;next-pos)))
-
-;(defn boundary
-;"putting x and y together"
-;[{:keys [x y vx vy]}]
-; {:x (boundary-single (move-single vx) 0 c-width) :y (boundary-single (move-single vy) 0 c-height)})
+ {id {:x (move-single vx) :y (move-single vy)}})
 
 (defn wrap-single 
 "will wrap around if out of boundary globe style
@@ -129,20 +108,14 @@ should never have things drawn out of boundary"
 (defn bounce-in-boundary
 "if was outside boundary will be going toward said boundary"
 [id {:keys [x y vx vy x-min x-max y-min y-max] :or {x-min 0 x-max c-width y-min 0 y-max c-height}}]
-{id {:vx [(go-back x x-min x-max) 500]
-     :vy [(go-back y y-min y-max) 500]}})
+{id {:vx (go-back x x-min x-max)
+     :vy (go-back y y-min y-max)}})
 
-;(defn accelerate [{:keys [vx vy]}]
-;{:vx (+ vx .01) :vy (+ vy .01)})
 ;TIME
-(defn get-timers-change [M] (into {} (map (fn [[ky vl]] 
-					      (if (<= vl 0) [ky [(fn [current] (identity false))  500]] 
-							    [ky [#(- % 1) 500]])) 
-					  M)))
-;(defn get-timers-change [Map] (reduce-kv (fn [M k v] 
-;					  (if (<= v 0) (assoc M k false)
-;						       (assoc M k #(- % 1)))
-;					  {} Map))
+(defn get-timers-change [Map] (reduce-kv (fn [M k v] 
+					  (if (<= v 0) (assoc M k false)
+						       (assoc M k #(- % (/ 1 update-per-second)))))
+					  {} Map))
 
 (defn timer
 "Reduces the number on all timers. Then sets value to false if out of time."
@@ -202,12 +175,16 @@ fixed for now with let, may revisit later"
 (if (not created)
 (do (swap! available-id inc)
 
-{id {:created true} id-2 {:created true} new-id {:x (rand-int 1500) :R (average-int R R-2) :G (average-int G G-2) :B (average-int B B-2) :y (rand-int 600) :vx (rand-int 50) :vy (rand-int 50) :funcs {:move [:to #'move] :boundary [:to #'bounce-in-boundary]} 
+{id {:created true} id-2 {:created true} new-id {:x (rand-int 1500) :R (average-int R R-2) :G (average-int G G-2) :B (average-int B B-2) :y (rand-int 600) :vx (rand-int 50) :vy (rand-int 50) :funcs {:move [:to #'move] :boundary [:to #'bounce-in-boundary] :timer [:to #'timer]} 
 :on-collision [:to on-collision]
 :point-func [:to point-func]
+:timers {:alive 50}
 :size 10
 :draw [:to #'draw-rectangle]}})
 nil)))
+;GLOBAL FUNCS
+(defn pluck-dead [state]
+(into {} (filter (fn [[k v]] (let [timers (:timers v)] (or (:alive timers) (not (contains? timers :alive))))) state)))
 
 ;CORE
 ;fill out change as a default system for function returns allows me to change all funcs in one place 
@@ -330,6 +307,7 @@ cleaned-changes))
 (reduce merge-changes);;merges the changes into a single map
 (sort-and-reduce-changes);;Sorts and interprets each list of changes. Looks for changes that set a value and starts changes from there then applying changes to get a value. If all changes, they are maintained as a change list.
 (apply-changes game);;apply the changes to the current game state
+(pluck-dead)
 (reset! game-state));;make the new game state the updated one
 (reset! tick-count (inc @tick-count))
 (reset! tick-total (inc @tick-total))))
@@ -375,11 +353,11 @@ cleaned-changes))
 	   1
 	   {:x 100
      	   :y 15
-	:x-min 1000 
 	
 	:point-func #'box-closest
         :R 255
         :timers {
+	:alive 60
          :mating 30000
          } 
 	   :vx -150
@@ -397,7 +375,7 @@ cleaned-changes))
 	   :move #'move
 ;this will grab the entire game state and return a change object to collisions for self to set it to
 ;	   :jargo #'move
-	   :boundary #'wrap
+	   :boundary #'bounce-in-boundary
 	}
    	   :draw #'draw-rectangle
 	}
@@ -406,6 +384,7 @@ cleaned-changes))
 	   :y 150
         :timers {
          :mating 100
+	:alive 60
          } 
 	:point-func #'box-closest
 :G 255
@@ -428,6 +407,7 @@ cleaned-changes))
 :B 255
         :timers {
          :mating 100
+	:alive 60
          } 
 	:point-func #'box-closest
 	   :on-collision{
@@ -451,7 +431,7 @@ cleaned-changes))
 (graphics @game-state context)
 (js/requestAnimationFrame graphics-interval))
 (js/requestAnimationFrame graphics-interval)
-(def update-interval (js/setInterval #(update-game) (/ 1000 50)))
+(def update-interval (js/setInterval #(update-game) (/ 1000 update-per-second)))
 ;(def graphics-interval (js/setInterval #(graphics context) (/ 1000 50)))
 (def per-second-interval (js/setInterval reset-count 1000))
 ))
