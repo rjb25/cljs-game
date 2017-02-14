@@ -190,14 +190,15 @@ nil))
                       )) 
                  parent-1 parent-2))
 (defn create
-[id {:keys [timers] :as p-1 } id-2 {timers-2 :timers :as p-2}]
-(if (not (or  (:infertile timers)  (:infertile timers-2)))
+[id {{infertile-1 :infertile} :timers {fertility-timing-1 :infertile} :durations :as p-1 } id-2 {{infertile-2 :infertile} :timers {fertility-timing-2 :infertile} :durations :as p-2}]
+(if (not (or infertile-1  infertile-2))
 (let [new-id @available-id
       child-average (mate-merge p-1 p-2)
       child-dna (deviate child-average)
-      timer-child (merge child-dna {:timers {:infertile 10 :alive 30}})]
+      child-durations (:durations child-dna)
+      timer-child (merge child-dna {:timers child-durations})]
 (do  (swap! available-id inc)
- {id {:timers {:infertile 10}} id-2 {:timers {:infertile 10}} new-id timer-child}))
+ {id {:timers {:infertile fertility-timing-1}} id-2 {:timers {:infertile fertility-timing-2}} new-id timer-child}))
 nil))
 
 ;GLOBAL FUNCS
@@ -371,13 +372,18 @@ cleaned-changes))
 	:point-func #'box-closest
         :R 100
 	:G 0
-:deviance .1
+:deviance .5
         :B 0
 	:size 15
         :timers {
 	:alive 60
          :infertile false
          } 
+	:durations {
+	:alive 60
+	:infertile 10
+	}
+	
 	   :vx -150
 	   :vy 15
 ;I first asked myself why have a seperate section for these? How is this different than a section for boundary funcs or any other conditional?
@@ -404,10 +410,14 @@ cleaned-changes))
          :infertile false
 	:alive 60
          } 
+	:durations {
+	:alive 60
+	:infertile 10
+	}
 	:point-func #'box-closest
 	:size 15
 :R 0
-:deviance .1
+:deviance .5
 :B 0
 :G 500
 	   :on-collision{
@@ -428,12 +438,16 @@ cleaned-changes))
 :R 0
 :G 0
 :B 255
-:deviance .1
+:deviance .5
 	:size 15
         :timers {
          :infertile false
 	:alive 60
          } 
+	:durations {
+	:alive 60
+	:infertile 10
+	}
 	:point-func #'box-closest
 	   :on-collision{
 	:create #'create
