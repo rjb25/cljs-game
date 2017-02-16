@@ -1,9 +1,5 @@
 ;; TODO
-;; create collision area functions
-;; continue formatting the boundary functions
-;; make a case for boudary where they move back in if they happen to be out of bound. Or just make the function work that way. basically if x is outside set vx to be going to the center, if y is outside set vy to be going to the center
-;; Create a merge method that allows for cumulative change and order of application.
-;;
+;; 
 ;; FUNCTION TYPES
 ;; :move :boundary :draw :collision
 ;; this could be a problem with multiple of these affecting the same aspect (Ex. Move and boundary both affecting x and y, NOT because i decide the order and proof it. Could still become a long term problem
@@ -19,6 +15,13 @@
 ;;Why not use maps for the changes? It heavily complicates the core which does the mergeing if I were to use maps for these changes.
 ;;:to does not work for setting values to maps.
 (ns modern-cljs.core
+(:require 
+[domina :as d :refer [set-text! by-id log] ]
+[goog.string :as gstring]
+    [goog.string.format]
+	  [domina.events :as ev :refer [listen!]]
+[domina.css :as dc :refer [sel]]
+)
 (:require-macros [modern-cljs.macros :refer [default evaluate evaluate-bad]]))
 (enable-console-print!)
 
@@ -30,38 +33,27 @@
 (declare c-height)
 (declare draw-rectangle)
 (declare ident-or-val)
+(declare get-stats)
 ;DEFAULTS
+(def stats-shown [:x :y :deviance :speed {:timers [:infertile :alive] :durations [:infertile :alive]}])
 (def default-size 15)
 (def update-per-second 58)
 (def default-order 500)
+;GLOBALS
+(def display-id (atom false))
 
-;FRAMES
-(def fps (atom 0))
-(def tick-count (atom 0))
-(def available-id (atom 100))
-(def available-pos (atom 1))
-(def tick-total (atom 0))
-(defn reset-count [] (.log js/console @fps @tick-count @tick-total) (reset! fps 0)(reset! tick-count 0))
-;CLOJURE
- (defn map-leaves [f x]
-		(cond
-		 (map? x) 
-		 (persistent! (reduce-kv (fn [out k v]
-			     (assoc! out k (map-leaves f v)))
-		  (transient {})
-		  x))
-			 :else (f x)))
-;MATH
-(defn abs [n] (max n (- n)))
-(defn average [n1 n2] (/ (+ n1 n2) 2))
-(defn average-int [n1 n2] (quot (+ n1 n2) 2))
-(defn neg [n] (* (abs n) -1))
 
 ;DEV
+(defn rnd [n] (if (not (integer? n)) (gstring/format "%.2f" n) n))
 (defn return-one [object] #(+ 1 1))
-
-(defn return-1 [id object] {id {:x [#(+ % .5) 200]}})
-(defn return-2 [id object] {id {:x [#(+ % .5) 1]} 2 {:y [#(+ % .5) 5]}})
+(defn get-stat [stat object] (cond 
+(and (keyword? stat) (number? (stat object))) (str (name stat) " " (rnd (stat object)) " ")
+(keyword? stat) (str (name stat) " " (stat object) " ")
+				   (map? stat) (reduce-kv (fn [s k v] (str "\n" (name k) ": " (get-stat v (k object)) " " s)) "" stat)
+				   (vector? stat) (get-stats stat object)))
+(defn get-stats [stats object](reduce #(str %1 (get-stat %2 object)) "" stats))
+					
+(defn display-stats[id] (let [object (get @game-state id)] (if object (str "ID: " id " " (get-stats stats-shown object)) "Not Available")))
 
 (defn change-atom-where [atomic conditional changes]
 (->> @atomic
@@ -77,6 +69,31 @@
 
 (defn new-object [object collection]
 (conj collection object))
+
+;FRAMES
+(def fps (atom 0))
+(def tick-count (atom 0))
+(def available-id (atom 100))
+(def available-pos (atom 1))
+(def tick-total (atom 0))
+(defn update-stats [] (set-text! (by-id "stats") (display-stats @display-id)))
+(defn reset-count [] (update-stats) (comment (log @fps @tick-count @tick-total)) (reset! fps 0)(reset! tick-count 0))
+;CLOJURE
+ (defn map-leaves [f x]
+		(cond
+		 (map? x) 
+		 (persistent! (reduce-kv (fn [out k v]
+			     (assoc! out k (map-leaves f v)))
+		  (transient {})
+		  x))
+			 :else (f x)))
+;MATH
+(defn abs [n] (max n (- n)))
+(defn average [n1 n2] (/ (+ n1 n2) 2))
+(defn average-int [n1 n2] (quot (+ n1 n2) 2))
+(defn neg [n] (* (abs n) -1))
+(defn rand-pos-neg [n] (if (= (rand-int 2) 0) (* -1 n) n))
+
 
 ;;MOVEMENT
 (defn move-single [speed]
@@ -152,7 +169,7 @@ nil))
    (+ (Math/pow (- x1 x2) 2)
       (Math/pow (- y1 y2) 2))))
 
-(defn collide? [[id {get-closest-point-1 :point-func x :x y :y :as object-1}] [id-2 {get-closest-point-2 :point-func :as object-2}]] (if (and get-closest-point-2 get-closest-point-1) (let [close-1 (get-closest-point-1 object-1 object-2) close-2 (get-closest-point-2 object-2 object-1)] (> (distance close-1 [x y]) (distance close-2 [x y]))) false))
+(defn collide? [[id {get-closest-point-1 :point-func x :x y :y :as object-1}] [id-2 {get-closest-point-2 :point-func :as object-2}]] (if (and get-closest-point-2 get-closest-point-1) (let [close-1 (get-closest-point-1 object-1 object-2) close-2 (get-closest-point-2 object-2 object-1)] (>= (distance close-1 [x y]) (distance close-2 [x y]))) false))
 ;;collision funcs will take myid myobject theirid theirobject
 
 (defn gen-collision
@@ -176,7 +193,7 @@ nil))
 (concat (reduce #(into %1 (gen-both-collisions (first state) %2)) [] (rest state)) next-step)
 )))
 ;CREATION
-(defn get-deviance [deviance value] (+ value (- (rand (* (* deviance 2) value)) (* deviance value))))
+(defn get-deviance [deviance value] (+ value (rand-pos-neg (rand (* deviance value)))))
 ;;Also handling :to for functions here
 (defn get-dna [{:keys [deviance] :or {deviance 0}} leaf] (cond (number? leaf) (get-deviance deviance leaf)
 								    (fn? leaf) [:to leaf]))
@@ -190,13 +207,16 @@ nil))
                       )) 
                  parent-1 parent-2))
 (defn create
-[id {{infertile-1 :infertile} :timers {fertility-timing-1 :infertile} :durations :as p-1 } id-2 {{infertile-2 :infertile} :timers {fertility-timing-2 :infertile} :durations :as p-2}]
+[id {{infertile-1 :infertile} :timers x-1 :x y-1 :y {fertility-timing-1 :infertile} :durations :as p-1 } id-2 {{infertile-2 :infertile} :timers y-2 :y x-2 :x {fertility-timing-2 :infertile} :durations :as p-2}]
 (if (not (or infertile-1  infertile-2))
 (let [new-id @available-id
       child-average (mate-merge p-1 p-2)
       child-dna (deviate child-average)
       child-durations (:durations child-dna)
-      timer-child (merge child-dna {:timers child-durations})]
+      speed (:speed child-dna)
+      vy (rand-pos-neg (rand speed))
+      vx (rand-pos-neg (- speed vy))
+      timer-child (merge child-dna {:timers child-durations :vx vx :vy vy :x (average x-1 x-2) :y (average y-1 y-2) })]
 (do  (swap! available-id inc)
  {id {:timers {:infertile fertility-timing-1}} id-2 {:timers {:infertile fertility-timing-2}} new-id timer-child}))
 nil))
@@ -340,90 +360,57 @@ cleaned-changes))
  (set! (.-fillStyle ctx) (str "rgb("Rint","Gint","Bint")"))
  (.fillRect ctx (- x (/ size 2)) (- y (/ size 2)) size size)
  (.closePath ctx)))
-;One time events that occur upon page refresh
+;ONE time events that occur upon page refresh
 (.addEventListener
   js/window
   "DOMContentLoaded"
 (fn []
-(def context (.getContext (.getElementById js/document "canvas") "2d"))
-(def c-height (.-height (.getElementById js/document "canvas")))
-(def c-width (.-width (.getElementById js/document "canvas")))
+(let [canvas (.getElementById js/document "canvas")]
+(def context (.getContext canvas "2d"))
+(def c-height (.-height canvas))
+(def c-width (.-width canvas))
+;STATS
+;turn this into a loop
+;
+(defn closer "returns the shorter of two distance id pairs" [[p-id p-distance] [n-id n-distance]] (if (< p-distance n-distance) [p-id p-distance] [n-id n-distance]))
+(defn get-closest "gets the closest object to a given point" [x y state] 
+	(first (reduce closer (map (fn [[obj-id {obj-x :x obj-y :y}]] 
+				    [obj-id (distance [x y] [obj-x obj-y])]) state))))
+(defn guy-click [evt]
+   (let [x (:offsetX evt)
+         y (:offsetY evt)
+	 state @game-state
+	 clicked (get-closest x y state)]
+       ;(log "CLICKED " clicked " STATE " (map (fn [[id obj]] (str id " X" (:x obj) " Y " (:y obj))) state) " clickX " x " clickY " y)
+       (reset! display-id clicked)
+       (update-stats)))
+
+(listen! (sel "canvas") :click guy-click)
+)
 ;merge only handles exactly two objects with functions?
-;STATE VARS
-;may eventually seperate functions based on what they need, so some functions might need whole game-state, others might need collisions and self,
-;why not just pass every object whole game state and have it take what it needs? because it is not efficient.
-;I need a better sorting system
-;For collisions just add :data
-;have collision be married with collision funcs. which are functions that are called on collision
-;gen-change then gen-collision-change
-;How on-collision case different then something like on boundary?
-;the difference being that on-collision calls the funcs with self and other, rather than with only self and id
-;call while generating makes the most sense for collisions
-;are they in me? if so call my collision functions with me and them
-;put all shape funcionality under :shape maybe? so that when mating you do not get mixed shape issues
-;however this runs into issues with the difficulty of the merge
-;I think it is ok to shift this complexity to the side of the mating function
-;Maybe make a default guy generater and make modifications to that guy for differences
-(def game-state (atom {
-	   1
-	   {:x 100
-     	   :y 15
-	
-	:point-func #'box-closest
-        :R 100
-	:G 0
-:deviance .5
-        :B 0
-	:size 15
-        :timers {
-	:alive 60
-         :infertile false
-         } 
-	:durations {
-	:alive 60
-	:infertile 10
-	}
-	
-	   :vx -150
-	   :vy 15
-;I first asked myself why have a seperate section for these? How is this different than a section for boundary funcs or any other conditional?
-;The answer is that this is multiple conditionals with multilpe things being affected depending on the conditionals. Not quite as simple as boundary.
-;and definitely worthy of seperate section.
-	   :on-collision{
-	:create #'create
-		}
-;Why is this a map and not a vector? So that merges can happen in mating, and so that functions could add, remove, or replace functions by type.
-;eg two collide one has the alcholic affect, which changes, or wraps the move function to drunken.
-	   :funcs {
-           :timer #'timer
-	   :move #'move
-;this will grab the entire game state and return a change object to collisions for self to set it to
-;	   :jargo #'move
-	   :boundary #'bounce-in-boundary
-	}
-   	   :draw #'draw-rectangle
-	}
-	   2
+;DEFAULT STATE
+(def default-guy 
 	   {:x 40
 	   :y 150
         :timers {
          :infertile false
-	:alive 60
+	:alive 40
          } 
 	:durations {
-	:alive 60
+	:alive 40
 	:infertile 10
 	}
 	:point-func #'box-closest
-	:size 15
+	:size 20
 :R 0
 :deviance .5
 :B 0
-:G 500
+:G 255
 	   :on-collision{
 	:create #'create
 		}
-	   :vx 7
+	   :speed 30
+	   :vx 5
 	   :vy 25
 	:funcs {
            :timer #'timer
@@ -431,36 +418,17 @@ cleaned-changes))
 	:boundary #'bounce-in-boundary
 	}
 	   :draw #'draw-rectangle
-}
-	   3
-	   {:x 40
-	   :y 150
-:R 0
-:G 0
-:B 255
-:deviance .5
-	:size 15
-        :timers {
-         :infertile false
-	:alive 60
-         } 
-	:durations {
-	:alive 60
-	:infertile 10
-	}
-	:point-func #'box-closest
-	   :on-collision{
-	:create #'create
-		}
-	   :vx 8
-	   :vy 25
-	:funcs {
-           :timer #'timer
-	   :move #'move
-	:boundary #'bounce-in-boundary
-	}
-	   :draw #'draw-rectangle
-}
+})
+;START STATE
+(def game-state (atom {
+	   1 default-guy
+	   2 (merge default-guy {:x 0 :vx 20 :vy 20 :speed 40 :y 0 :R 255 :G 0})
+	   6 (merge default-guy {:x 500 :y 400 :vx 15 :vy 15 :R 200 :G 10})
+	   7 (merge default-guy {:x 570 :y 500 :vx 15 :vy 15 :R 200 :G 10})
+	   8 (merge default-guy {:x 400 :y 500 :vx 15 :vy 15 :R 200 :G 10})
+	   3 (merge default-guy {:vx 30 :vy 5 :x 550 :speed 35 :y 550 :B 255 :G 0})
+	   ;4 (merge default-guy {:vx 50 :vy 50 :speed 100 :x 500 :y 550 :B 255 :size 10 :G 0})
+	   5 (merge default-guy {:vx -35 :vy 55 :speed 90 :x 500 :y 650 :B 255 :size 10 :G 50})
 }))
 (def open-id (atom (+ 1 (count @game-state))))
 
