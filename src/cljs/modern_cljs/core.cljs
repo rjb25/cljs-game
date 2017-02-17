@@ -34,6 +34,13 @@
 (declare draw-rectangle)
 (declare ident-or-val)
 (declare get-stats)
+(declare get-stat)
+(declare display-stats)
+(declare get-changes)
+(declare merge-changes)
+(declare sort-and-reduce-changes)
+(declare apply-changes)
+(declare pluck-dead)
 ;DEFAULTS
 (def stats-shown [:x :y :deviance :speed {:timers [:infertile :alive] :durations [:infertile :alive]}])
 (def default-size 15)
@@ -41,19 +48,31 @@
 (def default-order 500)
 ;GLOBALS
 (def display-id (atom false))
+;STATS
 
 
 ;DEV
+(defn test-update-game 
+"the game state tick function"
+([game] 
+(->> game 
+(get-changes)
+(reduce merge-changes)
+(sort-and-reduce-changes)
+(apply-changes game)
+(pluck-dead)
+))
+([game changes] 
+(->> changes
+(reduce merge-changes)
+(sort-and-reduce-changes)
+(apply-changes game)
+(pluck-dead)
+))
+)
+
 (defn rnd [n] (if (not (integer? n)) (gstring/format "%.2f" n) n))
 (defn return-one [object] #(+ 1 1))
-(defn get-stat [stat object] (cond 
-(and (keyword? stat) (number? (stat object))) (str (name stat) " " (rnd (stat object)) " ")
-(keyword? stat) (str (name stat) " " (stat object) " ")
-				   (map? stat) (reduce-kv (fn [s k v] (str "\n" (name k) ": " (get-stat v (k object)) " " s)) "" stat)
-				   (vector? stat) (get-stats stat object)))
-(defn get-stats [stats object](reduce #(str %1 (get-stat %2 object)) "" stats))
-					
-(defn display-stats[id] (let [object (get @game-state id)] (if object (str "ID: " id " " (get-stats stats-shown object)) "Not Available")))
 
 (defn change-atom-where [atomic conditional changes]
 (->> @atomic
@@ -140,8 +159,9 @@ should never have things drawn out of boundary"
 
 ;TIME
 (defn get-timers-change [Map] (reduce-kv (fn [M k v] 
-					  (if (<= v 0) (assoc M k false)
-						       (assoc M k #(- % (/ 1 update-per-second)))))
+					  (cond (= v false) M
+						(<= v 0) (assoc M k false)
+						 :else        (assoc M k #(- % (/ 1 update-per-second)))))
 					  {} Map))
 
 (defn timer
@@ -163,7 +183,7 @@ nil))
 					    		[(clamp other-x (- x half) (+ x half))
 							(clamp other-y (- y half) (+ y half))]))
 (defn distance 
-  "Euclidean distance between 2 points"
+  "Distance between 2 points"
   [[x1 y1] [x2 y2]]                     
   (Math/sqrt
    (+ (Math/pow (- x1 x2) 2)
@@ -208,7 +228,11 @@ nil))
                  parent-1 parent-2))
 (defn create
 [id {{infertile-1 :infertile} :timers x-1 :x y-1 :y {fertility-timing-1 :infertile} :durations :as p-1 } id-2 {{infertile-2 :infertile} :timers y-2 :y x-2 :x {fertility-timing-2 :infertile} :durations :as p-2}]
-(if (not (or infertile-1  infertile-2))
+;id check is to make only one child happen on collision
+
+(if (and (> id id-2) (not (or infertile-1  infertile-2)))
+;(if (not (or infertile-1  infertile-2))
+
 (let [new-id @available-id
       child-average (mate-merge p-1 p-2)
       child-dna (deviate child-average)
@@ -217,9 +241,9 @@ nil))
       vy (rand-pos-neg (rand speed))
       vx (rand-pos-neg (- speed vy))
       timer-child (merge child-dna {:timers child-durations :vx vx :vy vy :x (average x-1 x-2) :y (average y-1 y-2) })]
-(do  (swap! available-id inc)
+(do  (swap! available-id inc) 
  {id {:timers {:infertile fertility-timing-1}} id-2 {:timers {:infertile fertility-timing-2}} new-id timer-child}))
-nil))
+ (do  nil)))
 
 ;GLOBAL FUNCS
 (defn pluck-dead [state]
@@ -236,7 +260,7 @@ nil))
 ;Went non persist due to unfound error
 (defn nth?
 "checks if nth element exists" [v n] (and (vector? v) (< n (count v))))
-(defn get-nth [v n] (if (nth? v n) (nth v n) false))
+(defn get-nth "gets nth element if if exists, otherwise false" [v n] (if (nth? v n) (nth v n) false))
 (defn get-order [action] (cond (and (= (get-nth action 0) :to) (nth? action 2)) (nth action 2)
 			       (nth? action 1) (second action) 
 			       :else default-order))
@@ -371,7 +395,14 @@ cleaned-changes))
 (def c-width (.-width canvas))
 ;STATS
 ;turn this into a loop
-;
+(defn get-stat [stat object] (cond 
+(and (keyword? stat) (number? (stat object))) (str (name stat) " " (rnd (stat object)) " ")
+(keyword? stat) (str (name stat) " " (stat object) " ")
+				   (map? stat) (reduce-kv (fn [s k v] (str "\n" (name k) ": " (get-stat v (k object)) " " s)) "" stat)
+				   (vector? stat) (get-stats stat object)))
+(defn get-stats [stats object](reduce #(str %1 (get-stat %2 object)) "" stats))
+					
+(defn display-stats[id] (let [object (get @game-state id)] (if object (str "ID: " id " " (get-stats stats-shown object)) "Not Available")))
 (defn closer "returns the shorter of two distance id pairs" [[p-id p-distance] [n-id n-distance]] (if (< p-distance n-distance) [p-id p-distance] [n-id n-distance]))
 (defn get-closest "gets the closest object to a given point" [x y state] 
 	(first (reduce closer (map (fn [[obj-id {obj-x :x obj-y :y}]] 
@@ -423,12 +454,12 @@ cleaned-changes))
 (def game-state (atom {
 	   1 default-guy
 	   2 (merge default-guy {:x 0 :vx 20 :vy 20 :speed 40 :y 0 :R 255 :G 0})
-	   6 (merge default-guy {:x 500 :y 400 :vx 15 :vy 15 :R 200 :G 10})
-	   7 (merge default-guy {:x 570 :y 500 :vx 15 :vy 15 :R 200 :G 10})
-	   8 (merge default-guy {:x 400 :y 500 :vx 15 :vy 15 :R 200 :G 10})
-	   3 (merge default-guy {:vx 30 :vy 5 :x 550 :speed 35 :y 550 :B 255 :G 0})
-	   ;4 (merge default-guy {:vx 50 :vy 50 :speed 100 :x 500 :y 550 :B 255 :size 10 :G 0})
-	   5 (merge default-guy {:vx -35 :vy 55 :speed 90 :x 500 :y 650 :B 255 :size 10 :G 50})
+   6 (merge default-guy {:x 500 :y 400 :vx 15 :vy 15 :R 200 :G 10})
+   7 (merge default-guy {:x 570 :y 500 :vx 15 :vy 15 :R 200 :G 10})
+   8 (merge default-guy {:x 400 :y 500 :vx 15 :vy 15 :R 200 :G 10})
+   3 (merge default-guy {:vx 10 :vy 5 :x 550 :speed 15 :y 550 :B 255 :G 0})
+4 (merge default-guy {:vx 50 :vy 50 :speed 100 :x 500 :y 550 :B 255 :size 10 :G 0})
+   5 (merge default-guy {:vx -1 :vy 1 :speed 2 :x 550 :y 550 :B 255 :size 10 :G 50})
 }))
 (def open-id (atom (+ 1 (count @game-state))))
 
