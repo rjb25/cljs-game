@@ -27,7 +27,7 @@
             [goog.string.format]
             [domina.events :as ev :refer [listen!]]
             [domina.css :as dc :refer [sel]])
-  (:require-macros [evolution.macros :refer [default evaluate evaluate-bad]]))
+  )
 (enable-console-print!)
 
 ;DECLARATIONS
@@ -55,6 +55,7 @@
 (def default-order 500)
 ;GLOBALS
 (def display-id (atom false))
+(def click-state (atom :select))
 (def interrupts (atom []))
 ;STATS
 
@@ -496,24 +497,32 @@ Changes format is [{1 {:stuff 1}} 2 {etc}]"
                                                       (distance [x y]
                                                                 [obj-x obj-y])])
               state))))
-      (defn guy-click
-        [evt]
+
+      (defn select-click
+        [id]
+          (reset! display-id id)
+          (update-stats))
+      (defn kill-click
+        [id]
+        (let [state @game-state]
+          (if (alive? id state)
+            (add-interrupt {id {:timers {:alive [false 600]}}})))
+        (reset! display-id false))
+
+      (defn canvas-handler [evt]
         (let [x (:offsetX evt)
               y (:offsetY evt)
               state @game-state
-              clicked (get-closest x y state)]
-          ;(log "CLICKED " clicked " STATE " (map (fn [[id obj]] (str id " X"
-          ;(:x obj) " Y " (:y obj))) state) " clickX " x " clickY " y)
-          (reset! display-id clicked)
-          (update-stats)))
-      (defn kill-selected
-        []
-        (let [selected-id @display-id
-              state @game-state]
-          (if (alive? selected-id state)
-            (add-interrupt {selected-id {:timers {:alive [false 600]}}}))))
-      (listen! (sel "#kill-button") :click kill-selected)
-      (listen! (sel "canvas") :click guy-click))
+              id (get-closest x y state)
+              click-type @click-state]
+              (cond (= click-type :select) (select-click id)
+                    (= click-type :kill) (kill-click id))
+              ))
+      (defn button-handler [click-type click-name] (reset! click-state click-type) (set-text! (by-id "mouse-type") click-name))
+      (listen! (sel "canvas") :click canvas-handler)
+      (listen! (by-id "kill-button") :click (fn [evt] (button-handler :kill "Kill")))
+      (listen! (by-id "select-button") :click (fn [evt] (button-handler :select "Select")))
+      )
     ;merge only handles exactly two objects with functions?
     ;DEFAULT STATE
     (def default-guy
@@ -536,7 +545,7 @@ Changes format is [{1 {:stuff 1}} 2 {etc}]"
     ;START STATE
     (def game-state
       (atom
-        {1 default-guy,
+        {1 default-guy
          2 (merge default-guy
                   {:x 0, :vx 20, :vy 20, :speed 40, :y 0, :R 255, :G 0}),
          6 (merge default-guy {:x 500, :y 400, :vx 15, :vy 15, :R 200, :G 10}),
@@ -565,7 +574,8 @@ Changes format is [{1 {:stuff 1}} 2 {etc}]"
                    :y 550,
                    :B 255,
                    :size 10,
-                   :G 50})}))
+                   :G 50})
+         }))
     (def open-id (atom (+ 1 (count @game-state))))
     ;;INTERVALS
     (defn graphics-interval
