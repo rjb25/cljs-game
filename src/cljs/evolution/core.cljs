@@ -56,7 +56,7 @@
 ;GLOBALS
 (def display-id (atom false))
 (def click-state (atom :select))
-(def interrupts (atom []))
+(def interrupts (atom '()))
 ;STATS
 
 
@@ -94,6 +94,7 @@
 (defn dev-new-object [atomic object] (reset! atomic (conj @atomic object)))
 
 (defn new-object [object collection] (conj collection object))
+(defn add-interrupt [change-map] (swap! interrupts conj change-map))
 
 ;FRAMES
 (def fps (atom 0))
@@ -246,6 +247,16 @@ should never have objects drawn out of boundary"
                       :else p-1))
               parent-1
               parent-2))
+(defn get-new-id []
+  (let [new-id @available-id] (swap! available-id inc) new-id))
+
+(defn copy-click [x y id] 
+  (let [game @game-state
+        to-copy (get game id)]
+    (if to-copy (let [new-id (get-new-id)
+                      durations (:durations to-copy)
+                      formatted-copy (deviate to-copy)]
+                     (add-interrupt {new-id (merge formatted-copy {:timers durations, :x x, :y y})}) nil))))
 (defn create
   [id
    {{infertile-1 :infertile} :timers,
@@ -260,7 +271,7 @@ should never have objects drawn out of boundary"
     :as p-2}]
   ;id check is to make only one child happen on collision
   (if (and (> id id-2) (not (or infertile-1 infertile-2)))
-    (let [new-id @available-id
+    (let [new-id (get-new-id)
           child-average (mate-merge p-1 p-2)
           child-dna (deviate child-average)
           child-durations (:durations child-dna)
@@ -273,10 +284,10 @@ should never have objects drawn out of boundary"
                               :vy vy,
                               :x (average x-1 x-2),
                               :y (average y-1 y-2)})]
-      (do (swap! available-id inc)
+       
           {id {:timers {:infertile fertility-timing-1}},
            id-2 {:timers {:infertile fertility-timing-2}},
-           new-id timer-child}))
+           new-id timer-child})
     nil))
 
 ;GLOBAL FUNCS
@@ -393,11 +404,10 @@ Another reason is for knowing the current state of a value that may be modified 
     (if (empty? funcs)
       nil
       (reduce (fn [L f] (conj L (f id object))) [] funcs))))
-(defn add-interrupt [change-map] (swap! interrupts conj change-map))
 (defn get-interrupt-changes
   [interrupt-atom]
   (let [changes @interrupt-atom]
-    (reset! interrupt-atom [])
+    (reset! interrupt-atom '())
     changes))
 (defn get-changes
   "for making object modification map
@@ -416,7 +426,7 @@ Changes format is [{1 {:stuff 1}} 2 {etc}]"
   "the game state tick function"
   []
   (let [game @game-state]
-    ;(.log js/console (str game))
+    
     (->> game
          (get-changes)
          ;;round up all changes from all objects functions
@@ -516,11 +526,13 @@ Changes format is [{1 {:stuff 1}} 2 {etc}]"
               id (get-closest x y state)
               click-type @click-state]
               (cond (= click-type :select) (select-click id)
-                    (= click-type :kill) (kill-click id))
+                    (= click-type :kill) (kill-click id)
+                    (= click-type :copy) (copy-click x y @display-id))
               ))
       (defn button-handler [click-type click-name] (reset! click-state click-type) (set-text! (by-id "mouse-type") click-name))
       (listen! (sel "canvas") :click canvas-handler)
       (listen! (by-id "kill-button") :click (fn [evt] (button-handler :kill "Kill")))
+      (listen! (by-id "copy-button") :click (fn [evt] (button-handler :copy "Copy")))
       (listen! (by-id "select-button") :click (fn [evt] (button-handler :select "Select")))
       )
     ;merge only handles exactly two objects with functions?
@@ -545,27 +557,27 @@ Changes format is [{1 {:stuff 1}} 2 {etc}]"
     ;START STATE
     (def game-state
       (atom
-        {1 default-guy
-         2 (merge default-guy
-                  {:x 0, :vx 20, :vy 20, :speed 40, :y 0, :R 255, :G 0}),
-         6 (merge default-guy {:x 500, :y 400, :vx 15, :vy 15, :R 200, :G 10}),
-         9 (merge default-guy
-                  {:x 500, :y 400, :vx 40, :vy 50, :speed 90, :R 200, :G 10}),
-         10 (merge default-guy
-                   {:x (rand-int 550), :y 400, :vx 40, :vy 50, :speed 90}),
-         7 (merge default-guy {:x 570, :y 500, :vx 15, :vy 15, :R 200, :G 10}),
-         8 (merge default-guy {:x 400, :y 500, :vx 15, :vy 15, :R 200, :G 10}),
-         3 (merge default-guy
-                  {:vx 10, :vy 5, :x 550, :speed 15, :y 550, :B 255, :G 0}),
-         4 (merge default-guy
-                  {:vx 50,
-                   :vy 50,
-                   :speed 100,
-                   :x 500,
-                   :y 550,
-                   :B 255,
-                   :size 10,
-                   :G 0}),
+        {1 default-guy,
+         ;2 (merge default-guy
+         ;         {:x 0, :vx 20, :vy 20, :speed 40, :y 0, :R 255, :G 0}),
+         ;6 (merge default-guy {:x 500, :y 400, :vx 15, :vy 15, :R 200, :G 10}),
+         ;9 (merge default-guy
+         ;         {:x 500, :y 400, :vx 40, :vy 50, :speed 90, :R 200, :G 10}),
+         ;10 (merge default-guy
+         ;          {:x (rand-int 550), :y 400, :vx 40, :vy 50, :speed 90}),
+         ;7 (merge default-guy {:x 570, :y 500, :vx 15, :vy 15, :R 200, :G 10}),
+         ;8 (merge default-guy {:x 400, :y 500, :vx 15, :vy 15, :R 200, :G 10}),
+         ;3 (merge default-guy
+         ;         {:vx 10, :vy 5, :x 550, :speed 15, :y 550, :B 255, :G 0}),
+         ;4 (merge default-guy
+         ;         {:vx 50,
+         ;          :vy 50,
+         ;          :speed 100,
+         ;          :x 500,
+         ;          :y 550,
+         ;          :B 255,
+         ;          :size 10,
+         ;          :G 0}),
          5 (merge default-guy
                   {:vx -1,
                    :vy 1,
